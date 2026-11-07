@@ -1,0 +1,68 @@
+{
+  "name": "dsh-term-dict",
+  "version": "0.1.0",
+  "description": "跨会话的术语字典：查词条、写词条、查重体检三条工具，加设置面板；某个称谓第一次出现时，把它的口径自动注入模型上下文。",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "activation.js",
+    "cordis.patch.yml",
+    "assets",
+    "src",
+    "lib/client.js",
+    "scripts",
+    "README.md",
+    "README.en.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0",
+    "dsh": ">=0.2.2-0"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-settings"
+      ]
+    },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "glossary",
+    "terminology",
+    "dictionary",
+    "context",
+    "ui"
+  ],
+  "scripts": {
+    "build:client": "node scripts/build-client.mjs",
+    "check:client": "node scripts/build-client.mjs --check",
+    "check": "node --check index.js && node --check activation.js && node --check scripts/smoke.mjs && node --check scripts/build-client.mjs",
+    "smoke": "node scripts/smoke.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  },
+  "author": "taoziliyouchong",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/taoziliyouchong/dsh-term-dict"
+  },
+  "homepage": "https://github.com/taoziliyouchong/dsh-term-dict#readme",
+  "bugs": {
+    "url": "https://github.com/taoziliyouchong/dsh-term-dict/issues"
+  }
+}
