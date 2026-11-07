@@ -452,6 +452,16 @@ function renameLayer(def, nextName, nextSlug) {
  *  webServer 不写进 inject 硬依赖（非 web 组合里没有它也不该拦加载），也不能只靠 ctx.get——
  *  实测 apply 期 ctx.get('webServer') 拿不到（服务还没进这个上下文），得走 ctx.inject 等到位再挂。
  */
+/** 本会话当前 preset：读 profile-inject 写下的运行态文件；读不到返回 ''（判不出按允许处理，不误禁）。 */
+function presetLive(id) {
+  if (!id) return ''
+  try {
+    return readFileSync(join(DSH_HOME, 'codex-hooks', 'state', id + '.preset-live'), 'utf8').trim()
+  } catch {
+    return ''
+  }
+}
+
 function registerRoutes(ctx) {
   const direct = typeof ctx.get === 'function' ? ctx.get('webServer') : undefined
   if (direct && typeof direct.register === 'function') {
@@ -704,11 +714,18 @@ function registerOnRoutes(ctx, webServer) {
       if (req.method !== 'GET') return sendJson(res, 405, { ok: false, error: '只支持 GET' })
       const id = new URL(req.url || '/', 'http://localhost').searchParams.get('id') || ''
       const settings = loadSettings()
+      const preset = presetLive(id)
+      // 通用会话（判不出模式）永远放行；有模式时必须在「灌注的模式」名单里——新建的模式默认不在名单。
+      const allowed = preset === ''
+        || settings.presets.indexOf(preset) !== -1
       sendJson(res, 200, {
         ok: true,
         id,
         muted: id !== '' && settings.skipSessions.indexOf(id) !== -1,
         mutedCount: settings.skipSessions.length,
+        preset,
+        allowed,
+        presets: settings.presets,
       })
     },
   }), 'dsh-term-dict: session-state route')
@@ -1193,10 +1210,10 @@ export function apply(ctx) {
     if (timer && typeof timer.unref === 'function') timer.unref()
   } catch { /* 没有定时器就只靠启动清理 */ }
 
-  // 模式门：默认所有模式都注册字典工具；设置里 presets 填了模式 id 时，只在这些模式的 agent
-  // 作用域里注册（别的模式从未注册过，模型第一步就看不到，也不会留「工具已更新 · 移除」）。
-  // 白名单非空而判不出 preset 时不注册，下一次 pre-step 再判；切模式时按判到的 preset 注册／注销，
-  // dispose 挂在 agent 作用域上自动回收。技能面板里的词条用法技能是用户手动调用的，不在此列。
+  // 模式门：通用会话（无模式／判不出模式）默认注册字典工具；其余模式默认不注册，只有设置里
+  // presets 勾了才注册（别的模式从未注册过，模型第一步就看不到，也不会留「工具已更新 · 移除」）。
+  // 切模式时按判到的 preset 注册／注销，dispose 挂在 agent 作用域上自动回收。
+  // 技能面板里的词条用法技能是用户手动调用的，不在此列。
   const dictToolGate = new WeakMap()
   const gateDictTool = (agent, allowHeader) => {
     try {
@@ -1210,8 +1227,9 @@ export function apply(ctx) {
         if (header && typeof header.agentPreset === 'string' && header.agentPreset.length > 0) preset = header.agentPreset
       }
       const allow = loadSettings().presets
-      const restricted = Array.isArray(allow) && allow.length > 0
-      const allowed = restricted ? (typeof preset === 'string' && allow.indexOf(preset) !== -1) : true
+      const allowed = (typeof preset !== 'string' || preset.length === 0)
+        ? true
+        : allow.indexOf(preset) !== -1
       const held = dictToolGate.get(agent)
       if (allowed) {
         if (!held) dictToolGate.set(agent, agent.ctx.tools.register(DICT_TOOL))

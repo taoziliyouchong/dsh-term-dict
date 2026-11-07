@@ -55,8 +55,9 @@ the official runtime-context channel. Once per session per term; the state lives
 
 - **Timing**: words in the user message apply before that model call; words in the model's own reasoning or
   output apply from the next step or next turn (the stream already being generated cannot be changed).
-- **Scope**: every agent preset by default. Pick presets in *Settings → Advanced → presets* (the local roster is listed for you) to restrict it;
-  outside those presets the dictionary tools are not registered at all. Empty means unrestricted.
+- **Scope**: general sessions (no preset, or a preset that cannot be detected) always get it. Pick presets in *Settings → Advanced → presets*
+  (the local roster is listed for you); a preset outside that list — including any newly created one — gets nothing, and the dictionary tools
+  are not registered there. An empty list means only general sessions.
 - **Limits**: 64 terms per session, 12000 characters in total, entries not truncated — all adjustable.
 - **Skipping**: pick local workspaces in the panel (path-substring match, so a parent directory also covers its subdirectories) or type extra fragments (`skipWorkspaces`); session ids go through `skipSessions`; the
   composer button controls the current session, and each task layer can be forced on or off per session.
@@ -96,7 +97,7 @@ dsh plugin --profile desktop add github:taoziliyouchong/dsh-term-dict
 ```
 
 Restart DSH afterwards; replace `desktop` with your profile name if you use another one.
-Requires DSH >= 0.2.2-0 (verified on 0.2.2-rc.1; newer versions untested).
+Requires DSH >= 0.2.1-alpha.1 (lower bound inferred from the services and slots the plugin uses, all present in alpha.1); verified on 0.2.1-alpha.3 and 0.2.2-rc.1, later versions untested.
 
 ## Development
 

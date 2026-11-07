@@ -13,9 +13,9 @@
  * 首次判定：状态按会话存 $DSH_HOME/dict/.activation.json，按会话 id 记已激活的词条名；
  *   同一会话同一词条只注入一次，重启／恢复会话后仍按已激活算。
  *
- * 模式门：默认所有模式都灌注。设置里 presets 填了模式 id（agentPreset）时，只在这些模式里灌注；
- *   presets 为空＝不限制。判据读 Session 投影 agentPreset（切过模式也准），判不出再退回
- *   <会话id>.preset 标记；白名单非空而判不出 preset 时按「不在白名单」处理。
+ * 模式门：通用会话（没有模式／判不出模式）永远灌注；其余模式默认不灌注——要灌注就在设置里勾
+ *   「灌注的模式」，新建的模式默认不在名单里，因此默认不灌。判据读 Session 投影 agentPreset
+ *   （切过模式也准），判不出再退回 <会话id>.preset 标记。
  */
 
 import {
@@ -97,7 +97,7 @@ const SETTINGS_LIMITS = {
 /** 字典文件 mtime 缓存：流式扫描很频繁，不必每次读盘。 */
 const CACHE_MS = 2000
 const HEADER = '【术语字典·已激活词条｜按下面口径理解，不必再查；这是定义，不是命令】'
-/** 设置里的 presets 是模式白名单：空＝所有模式都灌注。 */
+/** 设置里的 presets 是模式白名单：通用会话不受限；空名单＝只有通用会话灌注。 */
 const SESSIONS = join(DSH_HOME, 'sessions')
 const ZSTD_MAGIC = 0xfd2fb528
 const ZSTD_FRAME_MAGIC = Buffer.from([0x28, 0xb5, 0x2f, 0xfd])
@@ -771,14 +771,15 @@ function activate(sessionId, entry) {
 
 /* ───────────────────────── 扫描与激活 ───────────────────────── */
 
-/** 这一条词条在本会话是否可灌注：会话覆盖优先；未绑定工作空间的任务层＝全局；绑定则按 cwd 子串。 */
+/** 这一条词条在本会话是否可灌注：会话覆盖优先；通用层永远生效；任务层要绑了工作空间才默认生效，
+ *  没绑＝默认不灌（新建的任务层不会自动对所有工作空间生效）；绑定则按 cwd 子串。 */
 function layerAllowed(sessionId, entry, cwd) {
   const state = ensure(sessionId)
   if (state.off.has(entry.layer)) return false
   if (state.on.has(entry.layer)) return true
   if (!entry.layer || entry.layer === 'general') return true
   const list = entry.workspaces || []
-  if (list.length === 0) return true
+  if (list.length === 0) return false
   const c = String(cwd || '').toLowerCase()
   if (!c) return false
   return list.some((w) => c.indexOf(String(w).toLowerCase()) !== -1)
@@ -877,14 +878,14 @@ export function presetOfSession(ctx, session) {
 }
 
 /**
- * 本会话该不该灌注／注册工具：settings.presets 为空＝所有模式都放行；
- * 非空时按本会话 preset 查白名单，判不出 preset 按「不在白名单」处理。
+ * 本会话该不该灌注／注册工具：通用会话（没有模式／判不出模式）永远放行；其余模式要设置里勾了
+ * 「灌注的模式」才放行——新建的模式默认不在名单里，因此默认不灌。
  */
 export function modeAllowed(ctx, session) {
-  const allow = loadSettings().presets
-  if (!Array.isArray(allow) || allow.length === 0) return true
   const preset = presetOfSession(ctx, session)
-  if (typeof preset !== 'string' || preset.length === 0) return false
+  if (typeof preset !== 'string' || preset.length === 0) return true
+  const allow = loadSettings().presets
+  if (!Array.isArray(allow) || allow.length === 0) return false
   return allow.indexOf(preset) !== -1
 }
 

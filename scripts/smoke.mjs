@@ -102,10 +102,10 @@ else ok('宿主半边', trusted + ' 条路由都过本机同源校验')
 /** 4. 自动激活：默认值与模式判定 */
 const act = await import(pathToFileURL(join(root, 'activation.js')).href)
 const defaults = act.DEFAULT_SETTINGS || {}
-if (!Array.isArray(defaults.presets)) fail('自动激活', 'DEFAULT_SETTINGS.presets 不是数组（默认应为空数组＝所有模式都灌注）')
+if (!Array.isArray(defaults.presets)) fail('自动激活', 'DEFAULT_SETTINGS.presets 不是数组（默认应为空数组＝只灌通用会话）')
 else if (defaults.presets.length !== 0) fail('自动激活', 'DEFAULT_SETTINGS.presets 默认不是空数组')
 else if (defaults.autoActivate !== true) fail('自动激活', 'DEFAULT_SETTINGS.autoActivate 默认不是 true')
-else ok('自动激活', 'presets 默认空（所有模式都灌注），autoActivate 默认开')
+else ok('自动激活', 'presets 默认空（只灌通用会话），autoActivate 默认开')
 if (typeof act.modeAllowed !== 'function') fail('自动激活', '没导出 modeAllowed（模式白名单判定）')
 else ok('自动激活', 'modeAllowed 已导出')
 

@@ -4,7 +4,7 @@
  * 数据走宿主 dsh-term-dict 的 HTTP 路由（list / read / write / rename），面板与文件之间只有这一个接口。
  *
  * 版式（2026-11-07 第四版）：
- *   左栏名册（通用 / 任务层 分组，行右小数字）→ 右栏标题行（层名 + 重命名 / 新词条）
+ *   左栏名册（通用 / 任务层 分组，行右小数字）→ 右栏标题行（层名 + 重命名 / 结构 / 设置）
  *   → 搜索 + 词条/原文 → 扁平的词条列表（点一条就地展开编辑卡，每个字段带标签）→ 底部文件与保存状态。
  *   低频操作收进二级：挪层是编辑卡里的一个下拉，跨层搜索折叠成列表下的一条。
  *
@@ -191,13 +191,25 @@ select.td-cell { padding:1px 2px; }
 .td-tab[aria-selected="true"] { background:var(--dsw-alias-bg-layer-2); font-weight:500; }
 .td-list { display:flex; flex-direction:column; }
 .td-group { display:flex; justify-content:space-between; align-items:center; gap:8px; width:100%;
-  margin:10px 0 2px; padding:4px 6px 4px 0; border:0; background:none;
-  color:var(--dsw-alias-label-primary); font:inherit; font-size:11px; text-align:left; cursor:pointer; }
+  margin:14px 0 0; padding:8px 6px; border-bottom:1px solid var(--dsw-alias-border-l1);
+  background:var(--dsw-alias-bg-layer-1); color:var(--dsw-alias-label-primary);
+  font:inherit; font-size:14px; font-weight:700; letter-spacing:0; }
 .td-group:first-child { margin-top:2px; }
-.td-group:hover { color:var(--dsw-alias-label-primary); }
-.td-groupnum { font-size:12px; color:var(--dsw-alias-label-primary); }
+.td-groupbtn { flex:1 1 auto; min-width:0; display:flex; justify-content:space-between; align-items:center;
+  gap:8px; padding:6px 0; border:0; background:none; color:inherit; font:inherit;
+  text-align:left; cursor:pointer; }
+.td-groupbtn:hover { color:var(--dsw-alias-brand-primary); }
+.td-groupnum { font-size:10px; font-weight:400; letter-spacing:0; padding:0 6px; border-radius:999px;
+  background:var(--dsw-alias-bg-layer-2); color:var(--dsw-alias-label-secondary); }
+.td-groupadd { padding:0 2px; border:0; background:none; color:var(--dsw-alias-label-secondary);
+  font:inherit; font-size:14px; line-height:1; cursor:pointer; }
+.td-groupadd:hover { color:var(--dsw-alias-brand-primary); }
+.td-addrow { display:block; width:100%; box-sizing:border-box; margin-top:10px; padding:7px 8px;
+  border:1px dashed var(--dsw-alias-border-l2); border-radius:6px; background:none;
+  color:var(--dsw-alias-label-secondary); font:inherit; font-size:12px; text-align:left; cursor:pointer; }
+.td-addrow:hover { border-color:var(--dsw-alias-brand-primary); color:var(--dsw-alias-label-primary); }
 .td-entry { display:flex; justify-content:space-between; align-items:center; gap:12px; width:100%;
-  padding:8px 6px; border:0; border-bottom:1px solid var(--dsw-alias-border-l1); border-radius:4px;
+  padding:8px 6px 8px 14px; border:0; border-bottom:1px solid var(--dsw-alias-border-l1); border-radius:4px;
   background:none; color:inherit; font:inherit; text-align:left; cursor:pointer; }
 .td-entry:hover { background:var(--dsw-alias-bg-layer-1); }
 .td-entry[aria-current="true"] { font-weight:600; background:var(--dsw-alias-bg-layer-1); }
@@ -369,11 +381,6 @@ function TermForm(props) {
   const allowed = (schemaTypes[kindId] && Array.isArray(schemaTypes[kindId].modules))
     ? schemaTypes[kindId].modules
     : []
-  const pickKind = (next) => {
-    setKind(next)
-    if (next === 'grave') set('状态', '已废')
-    else if (f['状态'] === '已废') set('状态', '待观察')
-  }
   const status = (isNew && kindId === 'grave') ? '已废' : (STATUSES.indexOf(f['状态']) === -1 ? '待观察' : f['状态'])
   const hasDef = String(f['定义'] || '').trim() !== ''
   const hasRef = String(f['默认指代'] || '').trim() !== ''
@@ -407,23 +414,6 @@ function TermForm(props) {
           {isNew ? null : <span className="td-kindtag" title="类型认词条里的「类型」字段，没有就按字段推断">{kindInfo.label}</span>}
         </span>
         <div className="td-cardacts">
-          <select
-            className="td-select"
-            aria-label="词条类型"
-            title="新建与修改都能换类型；换类型只改词条的「类型」字段和表单显示，不删已有内容"
-            value={kindId}
-            onChange={(e) => {
-              const next = e.target.value
-              if (isNew) {
-                pickKind(next)
-              } else {
-                const target = typeList.find((t) => t.id === next)
-                set('类型', target ? target.label : next)
-              }
-            }}
-          >
-            {enabledTypes.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
-          </select>
           <select
             className="td-select"
             aria-label="状态"
@@ -531,6 +521,7 @@ export function TermDictSection() {
   const [filter, setFilter] = useState('')
   const [editing, setEditing] = useState(null)
   const [adding, setAdding] = useState(false)
+  const [addingStatus, setAddingStatus] = useState('待观察')
   const [nameEditing, setNameEditing] = useState(false)
   const [nameDraft, setNameDraft] = useState('')
   const [slugEditing, setSlugEditing] = useState(false)
@@ -1609,10 +1600,18 @@ export function TermDictSection() {
             <div className="td-srow td-srow-top">
               <span className="td-slabel">{'限定模式'}</span>
               <span className="td-sfield td-sfield-col">
-                <span className="td-hint">{'全不勾＝所有模式都灌注；勾了就只在这些模式里灌注——别的模式既不注入词条，也看不到字典工具。'}</span>
+                <span className="td-hint">{'全不勾＝只灌注通用会话（没有模式或判不出模式）；勾了就只在这些模式里灌注——其余模式（含新建的）既不注入词条，也看不到字典工具。'}</span>
                 {Array.isArray(presetRoster) && presetRoster.length > 0
                   ? (
                     <span className="td-chips">
+                      <label className="td-check">
+                        <input
+                          type="checkbox"
+                          checked={presetRoster.every((p) => Array.isArray(d.presets) && d.presets.indexOf(p.id) !== -1)}
+                          onChange={(e) => setDraftField('presets', e.target.checked ? presetRoster.map((p) => p.id) : [])}
+                        />
+                        <span className="td-checkname">{'全选'}</span>
+                      </label>
                       {presetRoster.map((p) => {
                         const on = Array.isArray(d.presets) && d.presets.indexOf(p.id) !== -1
                         return (
@@ -1637,7 +1636,7 @@ export function TermDictSection() {
                       rows={2}
                       value={Array.isArray(d.presets) ? d.presets.join('\n') : ''}
                       spellCheck={false}
-                      placeholder={'一行一个模式的 agentPreset id；留空＝所有模式都灌注'}
+                      placeholder={'一行一个模式的 agentPreset id；留空＝只灌注通用会话'}
                       onChange={(e) => setDraftField('presets', e.target.value.split('\n'))}
                     />
                   )}
@@ -1670,6 +1669,14 @@ export function TermDictSection() {
                   const manual = list.filter((v) => paths.indexOf(String(v).toLowerCase()) === -1)
                   return (
                     <>
+                      <label className="td-check">
+                        <input
+                          type="checkbox"
+                          checked={roster.length > 0 && roster.every((w) => list.some((v) => String(v).toLowerCase() === String(w.path || '').toLowerCase()))}
+                          onChange={(e) => commitSkipWorkspaces(e.target.checked ? roster.map((w) => String(w.path || '')).filter((v) => v !== '') : [])}
+                        />
+                        <span className="td-checkname">{'全选'}</span>
+                      </label>
                       {roster.length > 0
                         ? (
                           <span className="td-chips">
@@ -2115,13 +2122,6 @@ export function TermDictSection() {
           <div className="td-headacts">
             <button type="button" className="td-link" onClick={() => void openStructure()}>{'结构'}</button>
             <button type="button" className="td-link" onClick={() => void openAdvanced()}>{'设置'}</button>
-            <button
-              type="button"
-              className="td-link primary"
-              onClick={() => { setView('terms'); setAdding(true); setEditing(null) }}
-            >
-              {'＋ 新词条'}
-            </button>
           </div>
         </div>
 
@@ -2148,25 +2148,6 @@ export function TermDictSection() {
         {view === 'terms'
           ? (
             <div className="td-list">
-              {adding
-                ? (
-                  <TermForm
-                    isNew
-                    term=""
-                    key="new"
-                    schema={schema}
-                    fields={{ 状态: '待观察' }}
-                    saving={doc.saving}
-                    layerOptions={layerOptions}
-                    layerId={activeId}
-                    onCancel={() => setAdding(false)}
-                    onSave={async (name, fields, targetId) => {
-                      const ok = await saveEntry(name, fields, targetId, true)
-                      if (ok) setAdding(false)
-                    }}
-                  />
-                )
-                : null}
 
               {doc.loading
                 ? <p className="td-hint">{'读取中…'}</p>
@@ -2176,23 +2157,56 @@ export function TermDictSection() {
                 : null}
 
               {!doc.loading && shown.length === 0 && !adding
-                ? <p className="td-hint">{keyword ? '没有匹配的词条。' : '这一层还没有词条，点右上角「＋ 新词条」加一条。'}</p>
+                ? <p className="td-hint">{keyword ? '没有匹配的词条。' : '这一层还没有词条，点下面的「＋ 新建词条」加一条。'}</p>
                 : null}
 
               {groups.map((g) => {
                 const folded = Boolean(collapsedStatus[g.key])
                 return (
                   <Fragment key={'status:' + g.key}>
-                    <button
-                      type="button"
-                      className="td-group"
-                      aria-expanded={!folded}
-                      title={folded ? '展开这一组' : '收起这一组'}
-                      onClick={() => setCollapsedStatus((c) => Object.assign({}, c, { [g.key]: !c[g.key] }))}
-                    >
-                      <span>{folded ? '▸ ' : '▾ '}{g.key}</span>
-                      <span className="td-groupnum">{g.items.length}</span>
-                    </button>
+                    <div className="td-group">
+                      <button
+                        type="button"
+                        className="td-groupbtn"
+                        aria-expanded={!folded}
+                        title={folded ? '展开这一组' : '收起这一组'}
+                        onClick={() => setCollapsedStatus((c) => Object.assign({}, c, { [g.key]: !c[g.key] }))}
+                      >
+                        <span>{folded ? '▸ ' : '▾ '}{g.key}</span>
+                        <span className="td-groupnum">{g.items.length}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="td-groupadd"
+                        title={'在这一组加一条'}
+                        onClick={() => {
+                          setView('terms')
+                          setCollapsedStatus((c) => Object.assign({}, c, { [g.key]: false }))
+                          setAddingStatus(g.key)
+                          setAdding(true)
+                          setEditing(null)
+                        }}
+                      >
+                        {'＋'}
+                      </button>
+                    </div>
+                    {adding && addingStatus === g.key ? (
+                      <TermForm
+                        isNew
+                        term=""
+                        key={'new:' + g.key}
+                        schema={schema}
+                        fields={{ 状态: g.key }}
+                        saving={doc.saving}
+                        layerOptions={layerOptions}
+                        layerId={activeId}
+                        onCancel={() => setAdding(false)}
+                        onSave={async (name, fields, targetId) => {
+                          const ok = await saveEntry(name, fields, targetId, true)
+                          if (ok) setAdding(false)
+                        }}
+                      />
+                    ) : null}
                     {folded ? null : g.items.map((t) => (
                       <Fragment key={t.term}>
                         <button
@@ -2234,6 +2248,34 @@ export function TermDictSection() {
                   </Fragment>
                 )
               })}
+
+              {groups.length === 0 ? (
+                adding ? (
+                  <TermForm
+                    isNew
+                    term=""
+                    key="new-empty"
+                    schema={schema}
+                    fields={{ 状态: addingStatus }}
+                    saving={doc.saving}
+                    layerOptions={layerOptions}
+                    layerId={activeId}
+                    onCancel={() => setAdding(false)}
+                    onSave={async (name, fields, targetId) => {
+                      const ok = await saveEntry(name, fields, targetId, true)
+                      if (ok) setAdding(false)
+                    }}
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    className="td-addrow"
+                    onClick={() => { setView('terms'); setAddingStatus('待观察'); setAdding(true); setEditing(null) }}
+                  >
+                    {'＋ 新建词条'}
+                  </button>
+                )
+              ) : null}
 
               {keyword && (otherBusy || otherHits.length > 0)
                 ? (
@@ -2355,156 +2397,122 @@ function headerFor(text, layer) {
 /** 需要的客户端服务。 */
 export const inject = ['slots']
 
-const MUTE_CSS = `
-.tdict-mutebtn { display:inline-flex; align-items:center; padding:1px 8px; border:1px solid var(--dsw-alias-border-l1);
-  border-radius:999px; background:none; color:var(--dsw-alias-label-primary); font:inherit; font-size:11px;
-  line-height:1.6; cursor:pointer; white-space:nowrap; }
-.tdict-mutebtn:hover:not(:disabled) { color:var(--dsw-alias-label-primary); border-color:var(--dsw-alias-border-l2); }
-.tdict-mutebtn[data-muted="true"] { color:var(--dsw-alias-state-error-primary); border-color:currentColor; }
-.tdict-mutebtn:disabled { opacity:.6; cursor:default; }
-.tdict-menu { position:fixed; z-index:1000; width:260px; padding:8px 10px;
-  border:1px solid var(--dsw-alias-border-l1); border-radius:8px; background:var(--dsw-alias-bg-base);
-  box-shadow:0 8px 24px rgba(0,0,0,.16); display:flex; flex-direction:column; gap:6px;
-  font-size:11px; line-height:1.6; color:var(--dsw-alias-label-primary); }
-.tdict-menuroad { display:flex; align-items:center; gap:6px; }
-.tdict-menuline { display:flex; align-items:center; justify-content:space-between; gap:8px; }
-.tdict-menulabel { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.tdict-menu select { font:inherit; font-size:11px; max-width:130px; }
-.tdict-menuhint { font-size:10px; line-height:1.5; color:var(--dsw-alias-label-primary); }
-`
+const MUTE_CSS = `.pp-mutebtn { padding:2px 8px; border:1px solid var(--dsw-alias-border-l1); border-radius:999px; min-width:58px; text-align:center;
+  background:var(--dsw-alias-bg-base); color:var(--dsw-alias-label-primary); font:inherit; font-size:11px;
+  line-height:1.4; cursor:pointer; white-space:nowrap; }
+.pp-mutebtn:hover { border-color:var(--dsw-alias-brand-primary); }
+.pp-mutebtn[data-muted="true"] { color:var(--dsw-alias-state-error-primary); border-color:currentColor; }
+.pp-mutebtn:disabled { opacity:.6; cursor:default; }`
 
-/** 会话里的小开关：点开是本会话灌注开关 + 各任务层的「跟随 / 强制开 / 强制关」。 */
+/** apply 里注入：拿客户端的 sessions 服务。 */
+let getSessionsService = () => undefined
+
+/** 当前会话的 preset：订阅 session projection，切模式就跟着变（不用轮询）。 */
+function useAgentPreset(sessionId) {
+  const [preset, setPreset] = useState(undefined)
+  useEffect(() => {
+    if (!sessionId) return undefined
+    let alive = true
+    let face
+    try {
+      const service = getSessionsService()
+      const binding = service && typeof service.binding === 'function' ? service.binding(sessionId) : undefined
+      face = binding && binding.session && binding.session.projections
+        ? binding.session.projections.faceOf('agentPreset')
+        : undefined
+    } catch {
+      face = undefined
+    }
+    if (!face) return undefined
+    const read = () => { if (alive) setPreset(face.getSnapshot()) }
+    read()
+    const off = typeof face.subscribe === 'function' ? face.subscribe(read) : undefined
+    return () => {
+      alive = false
+      if (typeof off === 'function') off()
+    }
+  }, [sessionId])
+  return preset
+}
+
+const MUTE_CACHE = new Map()
+
+/** 会话里的小开关：本会话词条注／禁；当前模式不在灌注名单里就显示「禁」、点不动。 */
 export function SessionDictToggle(props) {
   const sessionId = props && props.sessionId ? String(props.sessionId) : ''
-  const [muted, setMuted] = useState(null)
+  const preset = useAgentPreset(sessionId)
+  const [muted, setMuted] = useState(() => (sessionId && MUTE_CACHE.has(sessionId) ? MUTE_CACHE.get(sessionId) : null))
+  const [presets, setPresets] = useState(null)
+  const [serverAllowed, setServerAllowed] = useState(null)
   const [busy, setBusy] = useState(false)
-  const [open, setOpen] = useState(false)
-  const [layers, setLayers] = useState([])
-  const [pos, setPos] = useState(null)
-  const btnRef = useRef(null)
-  const menuRef = useRef(null)
 
   useEffect(() => {
     if (!sessionId) return undefined
     let alive = true
-    getJson('/dsh-term-dict/api/session-state?id=' + encodeURIComponent(sessionId))
-      .then((data) => { if (alive) setMuted(Boolean(data.muted)) })
-      .catch(() => { if (alive) setMuted(null) })
-    return () => { alive = false }
+    const read = () => {
+      getJson('/dsh-term-dict/api/session-state?id=' + encodeURIComponent(sessionId))
+        .then((data) => {
+          if (!alive) return
+          const next = Boolean(data.muted)
+          MUTE_CACHE.set(sessionId, next)
+          setMuted(next)
+          setPresets(Array.isArray(data.presets) ? data.presets : null)
+          setServerAllowed(data.allowed === undefined ? null : Boolean(data.allowed))
+        })
+        .catch(() => {})
+    }
+    read()
+    window.addEventListener('focus', read)
+    return () => {
+      alive = false
+      window.removeEventListener('focus', read)
+    }
   }, [sessionId])
 
-  useEffect(() => {
-    if (!open) return undefined
-    const onDown = (event) => {
-      if (menuRef.current && menuRef.current.contains(event.target)) return
-      if (btnRef.current && btnRef.current.contains(event.target)) return
-      setOpen(false)
-    }
-    document.addEventListener('mousedown', onDown)
-    return () => document.removeEventListener('mousedown', onDown)
-  }, [open])
-
   if (!sessionId) return null
-
-  const openMenu = async () => {
-    if (busy) return
-    if (open) { setOpen(false); return }
-    if (btnRef.current) {
-      const r = btnRef.current.getBoundingClientRect()
-      setPos({
-        right: Math.max(8, Math.round(window.innerWidth - r.right)),
-        bottom: Math.max(8, Math.round(window.innerHeight - r.top + 6)),
-      })
-    }
-    setOpen(true)
-    try {
-      const data = await getJson('/dsh-term-dict/api/session-layers?session=' + encodeURIComponent(sessionId))
-      setLayers(Array.isArray(data.layers) ? data.layers : [])
-    } catch {
-      setLayers([])
-    }
-  }
-
-  const changeMute = async (next) => {
-    if (busy) return
+  // 有模式且不在「灌注的模式」名单里＝禁（含新建的模式）；判不出模式（通用会话）按放行，
+  // 名单清单取不到时退回宿主给的 allowed。
+  const blocked = typeof preset === 'string' && preset !== ''
+    ? (Array.isArray(presets) ? presets.indexOf(preset) === -1 : serverAllowed === false)
+    : serverAllowed === false
+  const label = blocked ? '词条·禁' : (busy ? '词条…' : (muted === null ? '词条…' : (muted ? '词条·禁' : '词条·注')))
+  const toggle = async () => {
+    if (busy || muted === null || blocked) return
     setBusy(true)
     try {
-      const data = await postJson('/dsh-term-dict/api/session-mute', { id: sessionId, muted: next })
-      setMuted(Boolean(data.muted))
+      const data = await postJson('/dsh-term-dict/api/session-mute', { id: sessionId, muted: !muted })
+      const next = Boolean(data.muted)
+      MUTE_CACHE.set(sessionId, next)
+      setMuted(next)
     } catch {
       /* 失败保持原状态 */
     } finally {
       setBusy(false)
     }
   }
-
-  const changeLayer = async (layer, override) => {
-    try {
-      await postJson('/dsh-term-dict/api/session-layers', { session: sessionId, layer, override })
-      setLayers((cur) => cur.map((l) => (l.id === layer ? Object.assign({}, l, { override }) : l)))
-    } catch {
-      /* 失败保持原状态 */
-    }
-  }
-
-  const label = busy ? '词条…' : (muted === null ? '词条…' : (muted ? '词条·禁' : '词条·注'))
-  const title = '术语字典：本会话灌注开关与任务层范围'
-
   return (
     <Fragment>
       <style>{MUTE_CSS}</style>
       <button
-        ref={btnRef}
         type="button"
-        className="tdict-mutebtn"
-        data-muted={muted === true ? 'true' : 'false'}
-        disabled={busy}
-        title={title}
-        onClick={() => void openMenu()}
+        className="pp-mutebtn"
+        data-muted={blocked || muted === true ? 'true' : 'false'}
+        disabled={busy || muted === null || blocked}
+        title={blocked ? '当前模式不在词条灌注名单里（设置 → 术语字典 → 灌注）' : '术语字典：本会话是否灌注词条'}
+        onClick={() => void toggle()}
       >
         {label}
       </button>
-      {open && pos
-        ? (
-          <span ref={menuRef} className="tdict-menu" style={{ right: pos.right, bottom: pos.bottom }}>
-            <label className="tdict-menuroad">
-              <input
-                type="checkbox"
-                checked={muted !== true}
-                disabled={muted === null}
-                onChange={(e) => void changeMute(!e.target.checked)}
-              />
-              {'本会话灌注词条'}
-            </label>
-            {layers.map((layer) => (
-              <span className="tdict-menuline" key={layer.id}>
-                <span className="tdict-menulabel" title={(layer.workspaces || []).join('、') || '未绑定工作空间'}>{layer.label}</span>
-                <select
-                  value={layer.override || ''}
-                  onChange={(e) => void changeLayer(layer.id, e.target.value || null)}
-                >
-                  <option value="">{'跟随'}</option>
-                  <option value="on">{'强制开'}</option>
-                  <option value="off">{'强制关'}</option>
-                </select>
-              </span>
-            ))}
-            {layers.length === 0 ? <span className="tdict-menuhint">{'没有任务层。'}</span> : null}
-            <span className="tdict-menuhint">
-              {'跟随＝按任务层文件里的「工作空间」绑定；未绑定的任务层所有会话都生效。'}
-            </span>
-          </span>
-        )
-        : null}
     </Fragment>
   )
 }
-
 /**
  * 把面板挂进设置页，并在会话标题旁放「词条·注／禁」开关。
  * @param ctx - 客户端根上下文。
  */
 export function apply(ctx) {
+  getSessionsService = () => { try { return ctx.get('sessions') } catch { return undefined } }
+
   ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section',
     id: 'term-dict',

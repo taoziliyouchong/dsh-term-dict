@@ -1,6 +1,6 @@
 {
   "name": "dsh-term-dict",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "跨会话的术语字典：查词条、写词条、查重体检三条工具，加设置面板；某个称谓第一次出现时，把它的口径自动注入模型上下文。",
   "type": "module",
   "main": "index.js",
@@ -21,9 +21,13 @@
     "README.en.md",
     "LICENSE"
   ],
+  "dependencies": {
+    "@deepseek-ai/dsh-skill": "^0.2.1-alpha.1",
+    "@deepseek-ai/dsh-tools": "^0.2.1-alpha.1"
+  },
   "engines": {
     "node": "^22.19.0 || >=24.0.0",
-    "dsh": ">=0.2.2-0"
+    "dsh": ">=0.2.1-alpha.1"
   },
   "dsh": {
     "client": {
