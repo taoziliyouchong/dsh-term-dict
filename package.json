@@ -1,6 +1,6 @@
 {
   "name": "dsh-term-dict",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "跨会话的术语字典：查词条、写词条、查重体检三条工具，加设置面板；某个称谓第一次出现时，把它的口径自动注入模型上下文。",
   "type": "module",
   "main": "index.js",
