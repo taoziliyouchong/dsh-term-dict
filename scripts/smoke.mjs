@@ -81,7 +81,7 @@ else ok('宿主半边', TOOLS.length + ' 条工具已注册')
 if (!hostSrc.includes("const API_PREFIX = '/" + pkg.name + "/api'")) fail('宿主半边', 'API_PREFIX 不是 /' + pkg.name + '/api')
 
 const ROUTES = [
-  'list', 'read', 'write', 'rename', 'create-layer', 'workspace', 'workspaces', 'settings', 'presets',
+  'list', 'read', 'write', 'rename', 'create-layer', 'delete-layer', 'workspace', 'workspaces', 'settings', 'presets',
   'session-state', 'session-mute', 'session-mute-clear', 'session-layers',
   'schema-scan', 'schema/module-remove', 'schema/module-cancel', 'schema/module-add',
   'schema/module-def', 'schema/type-enable', 'schema/type-module', 'schema/type-add',
@@ -102,10 +102,10 @@ else ok('宿主半边', trusted + ' 条路由都过本机同源校验')
 /** 4. 自动激活：默认值与模式判定 */
 const act = await import(pathToFileURL(join(root, 'activation.js')).href)
 const defaults = act.DEFAULT_SETTINGS || {}
-if (!Array.isArray(defaults.presets)) fail('自动激活', 'DEFAULT_SETTINGS.presets 不是数组（默认应为空数组＝只灌通用会话）')
-else if (defaults.presets.length !== 0) fail('自动激活', 'DEFAULT_SETTINGS.presets 默认不是空数组')
+if (!Array.isArray(defaults.presets)) fail('自动激活', 'DEFAULT_SETTINGS.presets 不是数组（默认应为空数组＝全开）')
+else if (defaults.presets.length !== 0) fail('自动激活', 'DEFAULT_SETTINGS.presets 默认不是空数组（应为全开）')
 else if (defaults.autoActivate !== true) fail('自动激活', 'DEFAULT_SETTINGS.autoActivate 默认不是 true')
-else ok('自动激活', 'presets 默认空（只灌通用会话），autoActivate 默认开')
+else ok('自动激活', 'presets 默认空＝全开，用户可在面板改；autoActivate 默认开')
 if (typeof act.modeAllowed !== 'function') fail('自动激活', '没导出 modeAllowed（模式白名单判定）')
 else ok('自动激活', 'modeAllowed 已导出')
 

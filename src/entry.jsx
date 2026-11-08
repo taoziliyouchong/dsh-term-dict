@@ -56,11 +56,20 @@ const CSS = `
 .td-roster { flex:0 0 196px; display:flex; flex-direction:column; gap:1px; }
 .td-grouplabel { margin:16px 0 6px 10px; font-size:11px; color:var(--dsw-alias-label-primary); }
 .td-grouplabel:first-child { margin-top:2px; }
-.td-row { display:flex; justify-content:space-between; align-items:center; gap:8px; width:100%;
-  padding:6px 10px; border:0; border-radius:6px; background:none; color:inherit;
-  font:inherit; text-align:left; cursor:pointer; }
+.td-row { display:flex; align-items:center; gap:2px; width:100%; border-radius:6px; }
 .td-row:hover { background:var(--dsw-alias-bg-layer-1); }
-.td-row[aria-current="true"] { background:var(--dsw-alias-bg-layer-2); font-weight:600; }
+.td-row[aria-current="true"] { background:var(--dsw-alias-bg-layer-2); }
+.td-row[aria-current="true"] .td-rowmain { font-weight:600; }
+.td-rowmain { flex:1 1 auto; min-width:0; display:flex; justify-content:space-between; align-items:center; gap:8px;
+  padding:6px 6px 6px 10px; border:0; border-radius:6px; background:none; color:inherit;
+  font:inherit; text-align:left; cursor:pointer; }
+.td-rowdel { flex:0 0 auto; padding:0 5px; border:0; background:none; color:var(--dsw-alias-label-primary);
+  font:inherit; font-size:13px; line-height:1; cursor:pointer; opacity:0; }
+.td-row:hover .td-rowdel, .td-row[aria-current="true"] .td-rowdel { opacity:.6; }
+.td-rowdel:hover { color:var(--dsw-alias-state-error-primary); opacity:1; }
+.td-confirm { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;
+  margin:0; padding:8px 10px; border:1px solid var(--dsw-alias-state-error-primary); border-radius:6px;
+  background:var(--dsw-alias-bg-layer-1); font-size:12px; line-height:1.6; }
 .td-num { font-size:12px; font-weight:400; color:var(--dsw-alias-label-primary); }
 .td-newlayer { display:flex; flex-direction:column; gap:4px; padding:4px 6px; }
 .td-newlayerbtn { margin:2px 6px; padding:2px 0; text-align:left; }
@@ -528,6 +537,8 @@ export function TermDictSection() {
   const [creatingLayer, setCreatingLayer] = useState(false)
   const [newLayerName, setNewLayerName] = useState('')
   const [layerSaving, setLayerSaving] = useState(false)
+  const [layerConfirm, setLayerConfirm] = useState(null)
+  const [layerDeleting, setLayerDeleting] = useState(false)
   const [wsOpen, setWsOpen] = useState(false)
   const [wsOptions, setWsOptions] = useState([])
   const [wsError, setWsError] = useState(null)
@@ -737,6 +748,27 @@ export function TermDictSection() {
       setRnError(String((e && e.message) || e))
     } finally {
       setLayerSaving(false)
+    }
+  }
+
+  /** 删除任务层：文件改名归档（.deleted-时间戳），词条不丢、可找回；删完回到默认层。 */
+  async function deleteLayer(id) {
+    if (!id || layerDeleting) return
+    setLayerDeleting(true)
+    setRnError(null)
+    try {
+      await postJson('/dsh-term-dict/api/delete-layer', { id })
+      setLayerConfirm(null)
+      setDocs((d) => {
+        const next = Object.assign({}, d)
+        delete next[id]
+        return next
+      })
+      await loadList({ silent: true })
+    } catch (e) {
+      setRnError(String((e && e.message) || e))
+    } finally {
+      setLayerDeleting(false)
     }
   }
 
@@ -1943,19 +1975,34 @@ export function TermDictSection() {
     )
   }
 
-  /** 名册一行（通用层 / 任务层，按组平铺）。 */
+  /** 名册一行（通用层 / 任务层，按组平铺）；任务层行末可删。 */
   const row = (layer) => (
-    <button
+    <div
       key={layer.id}
-      type="button"
       className="td-row"
       aria-current={layer.id === activeId ? 'true' : undefined}
       title={layer.path}
-      onClick={() => setActiveId(layer.id)}
     >
-      <span>{layerLabel(layer)}</span>
-      <span className="td-num">{layer.exists ? String(layer.terms) : '—'}</span>
-    </button>
+      <button type="button" className="td-rowmain" onClick={() => setActiveId(layer.id)}>
+        <span>{layerLabel(layer)}</span>
+        <span className="td-num">{layer.exists ? String(layer.terms) : '—'}</span>
+      </button>
+      {layer.kind === 'domain' && layer.exists ? (
+        <button
+          type="button"
+          className="td-rowdel"
+          title={'删除这个任务层（文件改名归档，可找回）'}
+          onClick={() => {
+            setLayerConfirm(layer.id)
+            setAdvanced(false)
+            setStructureView(false)
+            setView('terms')
+          }}
+        >
+          {'×'}
+        </button>
+      ) : null}
+    </div>
   )
 
   return (
@@ -2126,6 +2173,29 @@ export function TermDictSection() {
         </div>
 
         {rnError ? <p className="td-error" role="alert">{rnError}</p> : null}
+
+        {layerConfirm ? (() => {
+          const target = layers.find((l) => l.id === layerConfirm) || null
+          return (
+            <p className="td-confirm">
+              <span>
+                {'删除任务层「' + (target ? layerLabel(target) : layerConfirm) + '」？'}
+                {'文件会改名归档（.deleted-时间戳），词条不丢，改回文件名即可找回。'}
+              </span>
+              <span className="td-inline">
+                <button
+                  type="button"
+                  className="td-btn primary"
+                  disabled={layerDeleting}
+                  onClick={() => void deleteLayer(layerConfirm)}
+                >
+                  {layerDeleting ? '删除中…' : '删除'}
+                </button>
+                <button type="button" className="td-btn" onClick={() => setLayerConfirm(null)}>{'取消'}</button>
+              </span>
+            </p>
+          )
+        })() : null}
 
         <div className="td-toolbar">
           {view === 'terms'

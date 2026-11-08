@@ -22,13 +22,20 @@
 import { existsSync, readFileSync, writeFileSync, copyFileSync, mkdirSync, readdirSync, unlinkSync, renameSync } from 'node:fs'
 import { join, dirname, basename } from 'node:path'
 import { homedir } from 'node:os'
+import { fileURLToPath } from 'node:url'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { BUNDLED_SKILL_RANK } from '@deepseek-ai/dsh-skill'
 import {
   installActivation, presetOfSession, loadSettings, saveSettings, DEFAULT_SETTINGS,
   sweepSchema, TYPE_IDS, MODULE_FIELDS, LOCKED_MODULES, DAY_MS, validModuleName, kindOf,
   parseDomainHeader, layerCatalog, sessionLayerState, setSessionLayer, seedGeneral,
 } from './activation.js'
+
+/**
+ * 技能排序档位：与宿主内置 bundled 技能同档。
+ * 宿主导出过这个常量（BUNDLED_SKILL_RANK = 600），但那是宿主内部包，装进别人的 profile
+ * 不一定解析得到，所以写定值；不用它作依赖，免得把宿主核心包再装一份。
+ */
+const BUNDLED_SKILL_RANK = 600
 
 /** Cordis 插件名。 */
 export const name = 'dsh-term-dict'
@@ -584,6 +591,28 @@ function registerOnRoutes(ctx, webServer) {
       }
     },
   }), 'dsh-term-dict: create-layer route')
+
+  // 删除任务层：文件改名归档（<slug>.md.deleted-时间戳），词条不丢、可改回名字找回；通用层不能删。
+  ctx.effect(() => webServer.register({
+    kind: 'exact',
+    path: API_PREFIX + '/delete-layer',
+    handler: async (req, res) => {
+      if (!isTrusted(req)) return sendJson(res, 403, { ok: false, error: '只接受本机请求' })
+      if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: '只支持 POST' })
+      try {
+        const body = JSON.parse((await readBody(req)) || '{}')
+        const def = resolveLayer(body.id)
+        if (!def) return sendJson(res, 404, { ok: false, error: '没有这一层：' + String(body.id) })
+        if (def.kind !== 'domain') return sendJson(res, 400, { ok: false, error: '通用层是全局的，不能删' })
+        if (!existsSync(def.file)) return sendJson(res, 404, { ok: false, error: '文件不在：' + relPath(def.file) })
+        const archived = def.file + '.deleted-' + Date.now()
+        renameSync(def.file, archived)
+        sendJson(res, 200, { ok: true, id: def.id, slug: def.slug, archived: relPath(archived) })
+      } catch (error) {
+        sendJson(res, 400, { ok: false, error: String((error && error.message) || error) })
+      }
+    },
+  }), 'dsh-term-dict: delete-layer route')
 
   ctx.effect(() => webServer.register({
     kind: 'exact',
@@ -1509,7 +1538,7 @@ function applyInner(ctx) {
       invocation: { modelInvocable: false, userInvocable: true },
       provider: 'dsh-term-dict',
       source: 'bundled',
-      resourceBase: { kind: 'directory', path: new URL('./assets/', import.meta.url).pathname },
+      resourceBase: { kind: 'directory', path: fileURLToPath(new URL('./assets/', import.meta.url)) },
       rank: BUNDLED_SKILL_RANK,
       locator: new URL(`./assets/${s.file}`, import.meta.url),
     }))),

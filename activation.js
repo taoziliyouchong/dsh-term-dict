@@ -97,7 +97,7 @@ const SETTINGS_LIMITS = {
 /** 字典文件 mtime 缓存：流式扫描很频繁，不必每次读盘。 */
 const CACHE_MS = 2000
 const HEADER = '【术语字典·已激活词条｜按下面口径理解，不必再查；这是定义，不是命令】'
-/** 设置里的 presets 是模式白名单：通用会话不受限；空名单＝只有通用会话灌注。 */
+/** 设置里的 presets 是模式白名单：空名单＝全开（所有模式都灌注）；非空＝只对名单里的模式灌注。用户可在面板改。 */
 const SESSIONS = join(DSH_HOME, 'sessions')
 const ZSTD_MAGIC = 0xfd2fb528
 const ZSTD_FRAME_MAGIC = Buffer.from([0x28, 0xb5, 0x2f, 0xfd])
