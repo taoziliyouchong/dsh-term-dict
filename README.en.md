@@ -13,8 +13,8 @@ down once; from then on the first mention in any session carries the agreed mean
 
 | Layer | File | Holds |
 | --- | --- | --- |
-| General | `$DSH_HOME/dict/general.md` | terms valid across every kind of work |
-| Task | `$DSH_HOME/dict/domains/<task-slug>.md` | terms valid only inside one kind of work, including per-workspace default targets |
+| General | `$DSH_HOME/evolve/dict/general.md` | terms valid across every kind of work |
+| Task | `$DSH_HOME/evolve/dict/domains/<task-slug>.md` | terms valid only inside one kind of work, including per-workspace default targets |
 
 One file per kind of work. The file header carries `> 任务类型：<display name>`; the panel lists that name.
 A task layer may bind workspaces with `> 工作空间：<path fragment>` lines — the term only matches when the
@@ -51,7 +51,7 @@ A miss is a normal result, not an error: the tool answers with near-miss candida
 
 The first time a term or alias appears in a session, its meaning is injected into the model context through
 the official runtime-context channel. Once per session per term; the state lives in
-`$DSH_HOME/dict/.activation.json`, so restarting or resuming does not inject twice.
+`$DSH_HOME/evolve/dict/.activation.json`, so restarting or resuming does not inject twice.
 
 - **Timing**: words in the user message apply before that model call; words in the model's own reasoning or
   output apply from the next step or next turn (the stream already being generated cannot be changed).
@@ -83,7 +83,7 @@ same-origin (cross-site writes from a browser get 403). Non-browser clients with
 
 ## Data
 
-Everything lives in `$DSH_HOME/dict/`: `general.md`, `domains/<slug>.md`, `.settings.json`,
+Everything lives in `$DSH_HOME/evolve/dict/`: `general.md`, `domains/<slug>.md`, `.settings.json`,
 `.activation.json`. The dictionary files are plain text and can be edited by hand; the plugin keeps a `.bak`
 before writing. Uninstalling does not delete them.
 On first run, if the general layer does not exist, the plugin seeds two term entries ("词条", alias 词目,

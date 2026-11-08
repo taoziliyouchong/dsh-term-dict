@@ -10,7 +10,7 @@
  *   用户消息里的词在本次模型调用前就生效（pre-step 之后还有一次 refreshContext）；
  *   思考／输出里的词只能从下一步或下一轮起生效——模型正在流式生成的那一段改不了。
  *
- * 首次判定：状态按会话存 $DSH_HOME/dict/.activation.json，按会话 id 记已激活的词条名；
+ * 首次判定：状态按会话存 $DSH_HOME/evolve/dict/.activation.json，按会话 id 记已激活的词条名；
  *   同一会话同一词条只注入一次，重启／恢复会话后仍按已激活算。
  *
  * 模式门：通用会话（没有模式／判不出模式）永远灌注；其余模式默认不灌注——要灌注就在设置里勾
@@ -27,7 +27,7 @@ import { homedir } from 'node:os'
 import { zstdDecompressSync } from 'node:zlib'
 
 const DSH_HOME = process.env.DSH_HOME || join(homedir(), '.dsh')
-const DICT_ROOT = join(DSH_HOME, 'dict')
+const DICT_ROOT = join(DSH_HOME, 'evolve', 'dict')
 const GENERAL_FILE = join(DICT_ROOT, 'general.md')
 const DOMAIN_DIR = join(DICT_ROOT, 'domains')
 const STATE_FILE = join(DICT_ROOT, '.activation.json')
@@ -342,7 +342,7 @@ export function cleanSchema(raw, fallback) {
 
 let settingsCache = { at: 0, mtime: -1, value: null }
 
-/** 读高级设置（$DSH_HOME/dict/.settings.json）；文件不在／坏了按默认，按 mtime 缓存 2 秒。 */
+/** 读高级设置（$DSH_HOME/evolve/dict/.settings.json）；文件不在／坏了按默认，按 mtime 缓存 2 秒。 */
 export function loadSettings() {
   const now = Date.now()
   if (settingsCache.value && now - settingsCache.at < CACHE_MS) return settingsCache.value

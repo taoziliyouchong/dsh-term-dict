@@ -7,7 +7,7 @@
  *   - 高级设置（dict\.settings.json）：自动激活开关、单会话条数、单条字数、整段字数；面板「高级设置」读写，改完下一次扫描起生效。
  *   - 自动激活：用户消息／AI 思考／AI 输出里第一次出现某词条时，把该词条作为 runtime-context 注入（同会话一次）。
  *
- * 落点（两层全部集中在一个根目录 $DSH_HOME\dict\ 下）：通用层 dict\general.md；任务层 dict\domains\<任务slug>.md（一个文件＝一类任务，目录名沿用 domains）。
+ * 落点（两层全部集中在一个根目录 $DSH_HOME\evolve\dict\ 下）：通用层 dict\general.md；任务层 dict\domains\<任务slug>.md（一个文件＝一类任务，目录名沿用 domains）。
  * 词条格式（纯文本，可直接手改；后四个字段可选）：
  *   ## 词条名
  *   - 定义：一句话
@@ -44,7 +44,7 @@ export const inject = ['tools', 'skills']
 
 const DSH_HOME = process.env.DSH_HOME || join(homedir(), '.dsh')
 /** 字典根目录：两层（通用／任务）全部集中在这下面。 */
-const DICT_ROOT = join(DSH_HOME, 'dict')
+const DICT_ROOT = join(DSH_HOME, 'evolve', 'dict')
 const GENERAL_FILE = join(DICT_ROOT, 'general.md')
 /** 任务层（原领域层）：一个文件＝一类任务，文件名即任务 slug。 */
 const DOMAIN_DIR = join(DICT_ROOT, 'domains')

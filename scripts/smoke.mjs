@@ -110,7 +110,7 @@ if (typeof act.modeAllowed !== 'function') fail('自动激活', '没导出 modeA
 else ok('自动激活', 'modeAllowed 已导出')
 
 /** 5. 默认词条：全新 DSH_HOME 首次运行写两条称谓型词条，已有字典不覆盖 */
-const seedFile = join(TMP_HOME, 'dict', 'general.md')
+const seedFile = join(TMP_HOME, 'evolve', 'dict', 'general.md')
 const seedRel = 'assets/general-default.md'
 if (!existsSync(join(root, seedRel))) fail('默认词条', '缺 ' + seedRel)
 else if (typeof act.seedGeneral !== 'function') fail('默认词条', 'activation.js 没导出 seedGeneral')
