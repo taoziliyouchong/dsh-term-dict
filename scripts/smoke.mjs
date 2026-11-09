@@ -2,14 +2,16 @@
 /**
  * 本机冒烟：不起应用、不发网络请求；默认词条用例只写系统临时目录，结束即删。
  *
- * 七关：
+ * 九关：
  *   1. 包结构      —— 要发布的文件都在（含已提交的 lib/client.js）
  *   2. 组合声明    —— dsh.bundle.patch 指向的文件在，里面的 insert id/name 等于包名；客户端声明齐
  *   3. 宿主半边    —— index.js 导出名等于包名，工具名、路由前缀与 23 条路由都在
  *   4. 自动激活    —— activation.js 的默认值带 presets（空数组＝所有模式），且导出模式判定函数
  *   5. 默认词条    —— 全新 DSH_HOME 首次写入一条称谓型词条，已有字典不覆盖
- *   6. 客户端产物  —— 外壳 id == 包名，产物里带本插件路由、模式白名单字段与面板文案
- *   7. 环境残留    —— 包内没有私有插件前缀、本机绝对路径、用户名
+ *   6. 检测模板    —— 标准模板有 EVID + 结论，结论 > 10 字；缺项／短结论判失败
+ *   7. 候选权重    —— 跨会话计数、同会话去重、到阈值退出候选
+ *   8. 客户端产物  —— 外壳 id == 包名，产物里带本插件路由、模式白名单字段与面板文案
+ *   9. 环境残留    —— 包内没有私有插件前缀、本机绝对路径、用户名
  *
  * 用法：node scripts/smoke.mjs   （任一条失败退出码 1）
  */
@@ -37,6 +39,8 @@ const fail = (label, why) => {
 const REQUIRED = [
   'index.js',
   'activation.js',
+  'weights.js',
+  'detect-format.js',
   'cordis.patch.yml',
   'assets/term-dict-workflow.md',
   'src/entry.jsx',
@@ -78,6 +82,17 @@ const missingTools = TOOLS.filter((tool) => !hostSrc.includes("name: '" + tool +
 if (missingTools.length > 0) fail('宿主半边', '缺工具：' + missingTools.join('、'))
 else ok('宿主半边', TOOLS.length + ' 条工具已注册')
 
+const HOST_MARKERS = [
+  ['writeStreak', '连续修改计数'],
+  ['连续修改已达 3 次', '连续修改拒写文案'],
+  ['hasReportLine', '正文报告校验'],
+  ['installDetectGuard', '检测写入闸'],
+  ['validateDetectText', '检测模板校验'],
+]
+const missingMarkers = HOST_MARKERS.filter(([marker]) => !hostSrc.includes(marker))
+if (missingMarkers.length > 0) fail('宿主半边', '缺机制标记：' + missingMarkers.map(([, label]) => label).join('、'))
+else ok('宿主半边', '检测闸／报告校验／连续修改计数标记都在')
+
 if (!hostSrc.includes("const API_PREFIX = '/" + pkg.name + "/api'")) fail('宿主半边', 'API_PREFIX 不是 /' + pkg.name + '/api')
 
 const ROUTES = [
@@ -105,7 +120,7 @@ const defaults = act.DEFAULT_SETTINGS || {}
 if (!Array.isArray(defaults.presets)) fail('自动激活', 'DEFAULT_SETTINGS.presets 不是数组（默认应为空数组＝全开）')
 else if (defaults.presets.length !== 0) fail('自动激活', 'DEFAULT_SETTINGS.presets 默认不是空数组（应为全开）')
 else if (defaults.autoActivate !== true) fail('自动激活', 'DEFAULT_SETTINGS.autoActivate 默认不是 true')
-else ok('自动激活', 'presets 默认空＝全开，用户可在面板改；autoActivate 默认开')
+else ok('自动激活', 'presets 默认空＝只灌注通用会话，用户可在面板改；autoActivate 默认开')
 if (typeof act.modeAllowed !== 'function') fail('自动激活', '没导出 modeAllowed（模式白名单判定）')
 else ok('自动激活', 'modeAllowed 已导出')
 
@@ -143,7 +158,80 @@ else {
   else ok('默认词条', '全新 DSH_HOME 首次写入 2 条称谓型词条（词条、词典，模块齐全；已有字典不覆盖）')
 }
 
-/** 6. 客户端产物 */
+/** 6. 检测模板：模板含 EVID + 结论；结论 >10 字才通过，缺项／短结论判失败 */
+try {
+  const fmt = await import(pathToFileURL(join(root, 'detect-format.js')).href)
+  const tpl = fmt.ensureTemplate()
+  const text = readFileSync(tpl, 'utf8')
+  const good = fmt.validateDetectText('## 候选：甲字印\nEVID: 测试原话\n- 结论：收，这是跨会话重复出现的约定称谓\n')
+  const noEvid = fmt.validateDetectText('## 候选：甲字印\n- 结论：收，这是跨会话重复出现的约定称谓\n')
+  const short = fmt.validateDetectText('## 候选：甲字印\nEVID: 测试原话\n- 结论：收\n')
+  const reportOk = fmt.hasReportLine('> **词条检测**：无候选')
+  const reportLoose = fmt.hasReportLine('> **词条检测**：本轮没有新增')
+  const reportBad = fmt.hasReportLine('正文没有报告')
+  const prompt = act.detectPrompt()
+  if (!text.includes('EVID:') || !text.includes('结论：')) fail('检测模板', '模板里缺 EVID: 或 结论：')
+  else if (!good.ok) fail('检测模板', '合规文本被判失败：' + good.errors.join('；'))
+  else if (noEvid.ok) fail('检测模板', '缺 EVID 的文本没被判失败')
+  else if (short.ok) fail('检测模板', '结论太短没被判失败')
+  else if (!reportOk || !reportLoose) fail('检测模板', '报告行没被认出来')
+  else if (reportBad) fail('检测模板', '没有报告行却认成有')
+  else if (!prompt.includes('正文报告见技能')) fail('检测模板', '注入文本没带报告/落地指针')
+  else ok('检测模板', '模板含 EVID + 结论；合规通过，缺 EVID／短结论／缺报告行都判失败')
+
+  // 关闭检测后：检测文本不再注入，账本也不建。
+  act.saveSettings({ detectEnabled: false })
+  const contexts = []
+  act.installActivation({
+    inject: (deps, fn) => fn({ systemPrompt: { context: (c) => contexts.push(c) } }),
+    on: () => {},
+    get: () => undefined,
+  })
+  const detectCtx = contexts.find((c) => c.name === 'dsh-term-dict:detect')
+  const offSession = { id: 'session-detect-off', header: {} }
+  const offText = detectCtx ? detectCtx.text({ agent: { session: offSession } }) : 'missing'
+  if (offText !== '') fail('检测模板', '关闭检测后检测文本仍被注入')
+  else ok('检测模板', '关闭检测后不注入检测文本、不建账本')
+  act.saveSettings({ detectEnabled: true })
+} catch (error) {
+  fail('检测模板', '模板用例抛错：' + (error && error.message ? error.message : error))
+}
+
+/** 7. 候选权重：跨会话计数、同会话去重、到阈值退出候选 */
+try {
+  const wts = await import(pathToFileURL(join(root, 'weights.js')).href)
+  const ledger = '## 候选：甲字印\nEVID: 测试原话\n- 结论：收，这是跨会话重复出现的约定称谓\n- 定义：一个测试用的候选词\n'
+  const reg = wts.registerFromLedger('s1', ledger)
+  const firstWeight = (wts.loadWeights().terms['甲字印'] || {}).weight
+  wts.registerFromLedger('s1', ledger)
+  const sameSession = wts.loadWeights().terms['甲字印'].weight
+  wts.registerFromLedger('s2', ledger)
+  wts.registerFromLedger('s3', ledger)
+  const weight = wts.loadWeights().terms['甲字印'].weight
+  const ready = wts.readyToPromote(3)
+  const writes = []
+  const promoted = wts.promoteReady({
+    threshold: 3,
+    writeEntry: (term, fields) => writes.push({ term, fields }),
+    hasTerm: () => false,
+  })
+  const readyAfter = wts.readyToPromote(3)
+  if (reg !== 1) fail('候选权重', '账本登记数应为 1，实际 ' + reg)
+  else if (firstWeight !== 1) fail('候选权重', '首次登记权重应为 1')
+  else if (sameSession !== 1) fail('候选权重', '同一会话不应重复加权重，实际 ' + sameSession)
+  else if (weight !== 3) fail('候选权重', '跨 3 个会话权重应为 3，实际 ' + weight)
+  else if (ready.length !== 1) fail('候选权重', '到阈值应转正 1 条，实际 ' + ready.length)
+  else if (promoted.length !== 1) fail('候选权重', '转正应返回 1 条，实际 ' + promoted.length)
+  else if (writes.length !== 1) fail('候选权重', '转正应写入 1 条，实际 ' + writes.length)
+  else if (!writes[0] || writes[0].fields['状态'] !== '待观察') fail('候选权重', '转正词条状态应为 待观察')
+  else if (!writes[0].fields['定义']) fail('候选权重', '转正词条应带定义')
+  else if (readyAfter.length !== 0) fail('候选权重', '转正后不应再留在候选里')
+  else ok('候选权重', '首次记 1，同会话不重复，跨 3 会话到阈值，转正后退出候选')
+} catch (error) {
+  fail('候选权重', '权重用例抛错：' + (error && error.message ? error.message : error))
+}
+
+/** 8. 客户端产物 */
 const client = readFileSync(join(root, 'lib', 'client.js'), 'utf8')
 const idMatch = /^\s*id:\s*"([^"]+)"/m.exec(client)
 if (!idMatch) fail('客户端产物', '外壳里找不到 id')
@@ -153,9 +241,12 @@ else if (!client.includes('/' + pkg.name + '/api/presets')) fail('客户端产�
 else if (!client.includes('/' + pkg.name + '/api/workspaces')) fail('客户端产物', '产物里没有工作空间清单路由（源码改了但没重新构建）')
 else if (!client.includes('presets')) fail('客户端产物', '产物里没有模式白名单字段（源码改了但没重新构建）')
 else if (!client.includes('灌注的模式')) fail('客户端产物', '产物里没有「灌注的模式」面板文案（源码改了但没重新构建）')
+else if (!client.includes('detectEnabled')) fail('客户端产物', '产物里没有检测开关字段（源码改了但没重新构建）')
+else if (!client.includes('词条检测')) fail('客户端产物', '产物里没有「词条检测」面板文案（源码改了但没重新构建）')
+else if (!client.includes('plugin-evolution')) fail('客户端产物', '产物里没有进化模式隐藏判断（源码改了但没重新构建）')
 else ok('客户端产物', 'id=' + pkg.name + '，' + Buffer.byteLength(client, 'utf8') + ' 字节')
 
-/** 7. 环境残留：发布包里不能有只在本机成立的东西 */
+/** 9. 环境残留：发布包里不能有只在本机成立的东西 */
 // 模式串拆开拼，免得本文件自己被扫中
 const PRIVATE_PREFIX = 'zz' + 'user-'
 const LOCAL_USER = 'a' + '1835'

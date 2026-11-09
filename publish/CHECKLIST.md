@@ -9,11 +9,11 @@ npm install
 npm run build:client    # 从 src/entry.jsx 重新生成 lib/client.js
 npm run check:client    # 已提交产物与源码一致
 npm run check           # 语法
-npm run smoke           # 结构 / 组合声明 / 宿主工具与路由 / 自动激活默认值 / 默认词条 / 客户端产物 / 环境残留 七关
+npm run smoke           # 结构 / 组合声明 / 宿主工具与路由 / 自动激活默认值 / 默认词条 / 检测模板 / 候选权重 / 客户端产物 / 环境残留 九关
 ```
 
 `scripts/smoke.mjs` 不起应用、不发网络请求；默认词条用例只写系统临时目录，结束即删。查包结构、组合声明里的 id/name、宿主半边的工具名与
-24 条路由（含同源守卫处数）、自动激活的默认值（`presets` 默认空＝所有模式）、全新 DSH_HOME 首次写入的默认词条，再核对 `lib/client.js` 的外壳 id
+25 条路由（含同源守卫处数）、自动激活的默认值（`presets` 默认空＝只灌注通用会话）、全新 DSH_HOME 首次写入的默认词条、检测模板与候选权重，再核对 `lib/client.js` 的外壳 id
 与面板标记，最后扫一遍环境残留。任一条失败退出码 1。
 
 ## 0.5 检查打包内容
@@ -22,7 +22,7 @@ npm run smoke           # 结构 / 组合声明 / 宿主工具与路由 / 自动
 npm pack --dry-run
 ```
 
-包里只应出现：`index.js`、`activation.js`、`cordis.patch.yml`、`assets/`、`src/`、`lib/client.js`、
+包里只应出现：`index.js`、`activation.js`、`weights.js`、`detect-format.js`、`cordis.patch.yml`、`assets/`、`src/`、`lib/client.js`、
 `scripts/`、两个 README、`LICENSE`。`node_modules/`、`publish/`、`*.tgz` 都不该进包。
 
 **`lib/client.js` 必须提交进 git。** 它不是构建垃圾：从 GitHub 安装时不跑构建，缺了它面板不会出现。
@@ -82,5 +82,6 @@ npm publish --access public
 
 - 数据在 `$DSH_HOME/evolve/dict/`，与包分开；卸载插件不会删数据，要清就手工删这个目录。
 - 宿主半边只响应回环地址且改数据要求同源；远程访问的 DSH 上面板会 403。
-- 自动激活默认所有模式灌注；只想在部分模式生效，就在面板「高级设置 → 灌注的模式」里勾选（清单来自宿主 agentPresets，自动列出）。
-- `engines.dsh` 写的是 `>=0.2.2-0`（实测 0.2.2-rc.1）。换了 DSH 版本要实测一遍再改这个下限。
+- 自动激活：通用会话默认灌注；其余模式要在面板「高级设置 → 灌注的模式」里勾选（清单来自宿主 agentPresets，自动列出）。
+- 词条检测：检测开关默认开；装了 `plugin-evolution` 时整套检测失效。检测账本写入必须过 `EVID:` + `结论：`（结论 >10 字）模板，否则直接拒写。
+- `engines.dsh` 写的是 `>=0.2.1-alpha.1`（实测 0.2.1-alpha.3、0.2.2-rc.1）。换了 DSH 版本要实测一遍再改这个下限。

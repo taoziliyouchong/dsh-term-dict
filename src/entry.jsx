@@ -267,6 +267,7 @@ const EMPTY_DOC = { loading: false, content: '', draft: '', error: null, saving:
 /** 高级设置的默认值：与宿主 activation.js 的 DEFAULT_SETTINGS 一致。 */
 const SETTINGS_DEFAULTS = {
   autoActivate: true,
+  detectEnabled: true,
   maxActive: 64,
   maxEntryChars: 0,
   maxTotalChars: 12000,
@@ -913,6 +914,7 @@ export function TermDictSection() {
     if (!settingsDraft) return
     const clean = {
       autoActivate: Boolean(settingsDraft.autoActivate),
+      detectEnabled: Boolean(settingsDraft.detectEnabled),
       maxActive: Math.round(Number(settingsDraft.maxActive)),
       maxEntryChars: Math.round(Number(settingsDraft.maxEntryChars)),
       maxTotalChars: Math.round(Number(settingsDraft.maxTotalChars)),
@@ -1278,6 +1280,8 @@ export function TermDictSection() {
 
   if (advanced) {
     const d = settingsDraft || SETTINGS_DEFAULTS
+    const hasEvolutionPreset = Array.isArray(presetRoster)
+      && presetRoster.some((p) => p && p.id === 'plugin-evolution')
 
     if (structureView) {
       const sc = d.schema || SETTINGS_DEFAULTS.schema
@@ -1573,16 +1577,15 @@ export function TermDictSection() {
               {'这些值控制「词条第一次出现时自动注入定义」的行为。保存后下一次扫描起生效；已经注入的词条不会被撤掉，新值只影响之后命中的词条。'}
             </p>
 
-            <p className="td-sect">{'自动激活'}</p>
             <label className="td-srow">
-              <span className="td-slabel">{'开关'}</span>
+              <span className="td-slabel">{'自动激活'}</span>
               <span className="td-sfield">
                 <input
                   type="checkbox"
                   checked={Boolean(d.autoActivate)}
                   onChange={(e) => setDraftField('autoActivate', e.target.checked)}
                 />
-                <span className="td-hint">{d.autoActivate ? '开：命中词条就注入' : '关：不再注入新词条（已注入的保留）'}</span>
+                <span className="td-hint">{'命中词条就注入'}</span>
               </span>
             </label>
             <label className="td-srow">
@@ -1628,8 +1631,21 @@ export function TermDictSection() {
               </span>
             </label>
 
-            <p className="td-sect">{'灌注的模式'}</p>
-            <div className="td-srow td-srow-top">
+            {!hasEvolutionPreset ? (
+              <label className="td-srow">
+                <span className="td-slabel">{'词条检测'}</span>
+                <span className="td-sfield">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(d.detectEnabled)}
+                    onChange={(e) => setDraftField('detectEnabled', e.target.checked)}
+                  />
+                  <span className="td-hint">{'每轮检测并落盘'}</span>
+                </span>
+              </label>
+            ) : null}
+
+            <p className="td-sect">{'灌注的模式'}</p>            <div className="td-srow td-srow-top">
               <span className="td-slabel">{'限定模式'}</span>
               <span className="td-sfield td-sfield-col">
                 <span className="td-hint">{'全不勾＝只灌注通用会话（没有模式或判不出模式）；勾了就只在这些模式里灌注——其余模式（含新建的）既不注入词条，也看不到字典工具。'}</span>

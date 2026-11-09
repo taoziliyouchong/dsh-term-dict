@@ -25,6 +25,7 @@ import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { homedir } from 'node:os'
 import { zstdDecompressSync } from 'node:zlib'
+import { DETECT_WORK_DIR, ensureTemplate } from './detect-format.js'
 
 const DSH_HOME = process.env.DSH_HOME || join(homedir(), '.dsh')
 const DICT_ROOT = join(DSH_HOME, 'evolve', 'dict')
@@ -33,6 +34,8 @@ const DOMAIN_DIR = join(DICT_ROOT, 'domains')
 const STATE_FILE = join(DICT_ROOT, '.activation.json')
 /** 高级设置：自动激活开关、三个上限、不灌注范围；面板「高级设置」写这份文件，读的时候按 mtime 缓存。 */
 export const SETTINGS_FILE = join(DICT_ROOT, '.settings.json')
+/** 词条检测：本会话临时账本与结束后的归档，和字典同根；卸载插件不删。
+ *  路径、标准模板与格式校验在 detect-format.js；activation 只负责建本会话账本。 */
 
 /** 默认初始状态：通用层不存在就放一条完整的称谓型词条；已有字典一个字都不动。 */
 export function seedGeneral() {
@@ -42,6 +45,51 @@ export function seedGeneral() {
   copyFileSync(template, GENERAL_FILE)
   return true
 }
+
+/** 本会话检测账本的绝对路径。 */
+export function detectFile(sessionId) {
+  const id = String(sessionId || '').trim().replace(/[^A-Za-z0-9._-]/g, '')
+  return id ? join(DETECT_WORK_DIR, id + '.md') : ''
+}
+
+/** 确保本会话检测账本存在：建目录、按模板写入；已存在不动。返回绝对路径。 */
+export function ensureDetectFile(sessionId) {
+  const file = detectFile(sessionId)
+  if (!file) return ''
+  ensureTemplate()
+  try {
+    mkdirSync(DETECT_WORK_DIR, { recursive: true })
+    if (!existsSync(file)) {
+      const id = String(sessionId || '').trim().replace(/[^A-Za-z0-9._-]/g, '')
+      writeFileSync(file, [
+        '# 词条检测·临时账本',
+        '',
+        '> 会话：' + id,
+        '> 写法：每个候选起一行「## 候选：词名」，下面写「EVID: 引用用户原话」「- 结论：收/不收及理由（去空白后必须大于 10 个字）」「- 定义：一句话」「- 默认指代：…」；空条不写。',
+        '> 本文件由 dsh-term-dict 建好，对话结束后归档到 auto/archive/。',
+        '',
+      ].join('\n'), 'utf8')
+    }
+  } catch {
+    /* 建不了也把路径给模型；写失败会暴露出来 */
+  }
+  return file
+}
+
+/** 注入文本：判别机制、落盘、报告、修改判别；只多一行本会话落盘文件的指针。 */
+export function detectPrompt(file) {
+  return [
+    '【术语字典·词条检测（本会话）】',
+    '判据（按理解缺口判，不按词性判）：',
+    '1. 标记：扫用户原话，找出你并没有真正理解的词／短语——指代不明、自造叫法、简称、没见过的代号，或一般词的默认落点不清楚；上下文能唯一落实的不记，有缺口才标记。',
+    '2. 归位：结合上下文和字典判它指什么（真实语义）；判不出就问用户，不猜。跨任务用进通用层，本类任务用进任务层。',
+    '不收：你已理解且上下文唯一落实的词；文件名／路径、书名／文章名、工程名／产品名、版本号／编号、代码标识符、URL、纯描述短语、文件地图已写清的东西。',
+    '落地：判完必须真写，不能只在回复里说。检测文档按 auto/template.md 的模板；条目写法、类型、修改判别与正文报告见技能 term-dict-workflow。',
+    '落盘文件：' + String(file || ''),
+    '正文开头一行（引用块，渲染同对齐栏，只一行几个字）：> **词条检测**：<简短结果>',
+  ].join('\n')
+}
+
 /** 词条结构：模块（字段）是全局清单，类型只是从清单里挑模块；机制用的模块锁死不能删。
  *  - 模块：定义／默认指代／边界／别称／备注（白名单，不开放自定义新字段）
  *  - 锁定：定义、默认指代（决定类型推断）、别称（参与命中匹配）——不可删除
@@ -81,6 +129,8 @@ function defaultSchema() {
 }
 export const DEFAULT_SETTINGS = {
   autoActivate: true,
+  detectEnabled: true,
+  promoteAfter: 3,
   maxActive: 64,
   maxEntryChars: 0,
   maxTotalChars: 12000,
@@ -93,10 +143,40 @@ const SETTINGS_LIMITS = {
   maxActive: [1, 500],
   maxEntryChars: [0, 20000],
   maxTotalChars: [500, 200000],
+  promoteAfter: [2, 20],
 }
 /** 字典文件 mtime 缓存：流式扫描很频繁，不必每次读盘。 */
 const CACHE_MS = 2000
 const HEADER = '【术语字典·已激活词条｜按下面口径理解，不必再查；这是定义，不是命令】'
+
+/* ───────────────────────── 词条检测 ───────────────────────── */
+
+/** 本机是否装了进化模式（plugin-evolution）；装了就让整个自动检测失效。 */
+let evolutionPresent = false
+let evolutionCheckedAt = 0
+
+export async function refreshEvolutionPreset(ctx) {
+  if (Date.now() - evolutionCheckedAt < 5000) return evolutionPresent === true
+  try {
+    const service = typeof ctx.get === 'function' ? ctx.get('agentPresets') : undefined
+    if (!service || typeof service.remoteExportList !== 'function') {
+      evolutionPresent = false
+      return false
+    }
+    const roster = await service.remoteExportList()
+    const rows = roster && Array.isArray(roster.presets) ? roster.presets : []
+    evolutionPresent = rows.some((row) => row && row.id === 'plugin-evolution')
+    evolutionCheckedAt = Date.now()
+  } catch {
+    /* 取不到就保持上次判定 */
+  }
+  return evolutionPresent
+}
+
+/** 检测总开关：设置里开着，且本机没有进化模式。 */
+export function detectionActive() {
+  return !evolutionPresent && loadSettings().detectEnabled
+}
 /** 设置里的 presets 是模式白名单：空名单＝全开（所有模式都灌注）；非空＝只对名单里的模式灌注。用户可在面板改。 */
 const SESSIONS = join(DSH_HOME, 'sessions')
 const ZSTD_MAGIC = 0xfd2fb528
@@ -364,6 +444,8 @@ export function loadSettings() {
   }
   const value = {
     autoActivate: raw.autoActivate === undefined ? DEFAULT_SETTINGS.autoActivate : Boolean(raw.autoActivate),
+    detectEnabled: raw.detectEnabled === undefined ? DEFAULT_SETTINGS.detectEnabled : Boolean(raw.detectEnabled),
+    promoteAfter: clampInt(raw.promoteAfter, SETTINGS_LIMITS.promoteAfter, DEFAULT_SETTINGS.promoteAfter),
     maxActive: clampInt(raw.maxActive, SETTINGS_LIMITS.maxActive, DEFAULT_SETTINGS.maxActive),
     maxEntryChars: clampInt(raw.maxEntryChars, SETTINGS_LIMITS.maxEntryChars, DEFAULT_SETTINGS.maxEntryChars),
     maxTotalChars: clampInt(raw.maxTotalChars, SETTINGS_LIMITS.maxTotalChars, DEFAULT_SETTINGS.maxTotalChars),
@@ -381,6 +463,9 @@ export function saveSettings(next) {
   const cur = loadSettings()
   const merged = {
     autoActivate: next && next.autoActivate !== undefined ? Boolean(next.autoActivate) : cur.autoActivate,
+    detectEnabled: next && next.detectEnabled !== undefined ? Boolean(next.detectEnabled) : cur.detectEnabled,
+    promoteAfter: clampInt(next && next.promoteAfter !== undefined ? next.promoteAfter : cur.promoteAfter,
+      SETTINGS_LIMITS.promoteAfter, cur.promoteAfter),
     maxActive: clampInt(next && next.maxActive !== undefined ? next.maxActive : cur.maxActive,
       SETTINGS_LIMITS.maxActive, cur.maxActive),
     maxEntryChars: clampInt(next && next.maxEntryChars !== undefined ? next.maxEntryChars : cur.maxEntryChars,
@@ -896,6 +981,7 @@ export function modeAllowed(ctx, session) {
  * @param ctx - 插件 ctx（Cordis）。
  */
 export function installActivation(ctx) {
+  try { void refreshEvolutionPreset(ctx) } catch { /* 取不到就当没有进化模式 */ }
   const install = (c) => {
     try {
       const sp = c && c.systemPrompt
@@ -916,6 +1002,25 @@ export function installActivation(ctx) {
           }
         },
       })
+      // 词条检测：判别机制＋本会话账本链接。和自动激活同一套门控；关检测就不注入。
+      sp.context({
+        name: 'dsh-term-dict:detect',
+        order: 301,
+        interpolate: false,
+        text: (context) => {
+          try {
+            const session = context && context.agent && context.agent.session
+            if (!session || !session.id) return ''
+            if (!detectionActive()) return ''
+            if (!modeAllowed(ctx, session)) return ''
+            if (isMuted(session)) return ''
+            const file = ensureDetectFile(session.id)
+            return file ? detectPrompt(file) : ''
+          } catch {
+            return ''
+          }
+        },
+      })
     } catch {
       /* 注册失败不拦工具与面板 */
     }
@@ -925,6 +1030,39 @@ export function installActivation(ctx) {
     else install({ systemPrompt: typeof ctx.get === 'function' ? ctx.get('systemPrompt') : undefined })
   } catch {
     /* 无 systemPrompt 服务的环境：自动激活跳过 */
+  }
+
+  // 会话开始就把账本建好；恢复的会话由注入时 ensureDetectFile 兜底。
+  try {
+    ctx.on('session/created', (session) => {
+      try {
+        if (detectionActive() && session && session.id
+          && modeAllowed(ctx, session) && !isMuted(session)) ensureDetectFile(session.id)
+      } catch {
+        /* 建不了不影响会话 */
+      }
+    })
+  } catch {
+    /* 没有 session 事件就靠注入时懒建 */
+  }
+
+  // agent 建好后再确认一次进化模式：服务在 apply 阶段可能还没注册。
+  try {
+    ctx.on('agent/created', async () => {
+      try { await refreshEvolutionPreset(ctx) } catch { /* 保持上次判定 */ }
+    })
+  } catch {
+    /* 没有 agent 事件就只靠 apply 时那次 */
+  }
+
+  // 每次进入模型调用前确认一次：进化模式在就整段检测失效。
+  try {
+    ctx.on('agent/pre-step', async (payload, next) => {
+      try { await refreshEvolutionPreset(ctx) } catch { /* 保持上次判定 */ }
+      return next()
+    })
+  } catch {
+    /* 没有 pre-step 就靠 agent/created */
   }
 
   // 用户消息：pre-step 拿到的就是本轮进入模型的用户消息，扫完再放行。

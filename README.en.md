@@ -9,6 +9,11 @@ tools (look up / write / lint) and a settings panel.
 Every new session starts blank: the model no longer knows what *your* "report" or "the table" means. Write it
 down once; from then on the first mention in any session carries the agreed meaning.
 
+Each session also injects a term-detection pass: the model writes new candidates it finds in your words into a
+session ledger, and a candidate used across enough sessions is promoted into the general layer. The detection
+switch lives in *Settings → Advanced* (on by default); if the `plugin-evolution` preset is installed, the whole
+detection pass is disabled.
+
 ## Layout
 
 | Layer | File | Holds |
@@ -62,16 +67,29 @@ the official runtime-context channel. Once per session per term; the state lives
 - **Skipping**: pick local workspaces in the panel (path-substring match, so a parent directory also covers its subdirectories) or type extra fragments (`skipWorkspaces`); session ids go through `skipSessions`; the
   composer button controls the current session, and each task layer can be forced on or off per session.
 
+## Term detection
+
+At session start the plugin injects the judgment rules and the path of a per-session ledger. The standard
+template lives at `$DSH_HOME/evolve/dict/auto/template.md`: every candidate block needs `EVID:` and `结论：`,
+and the conclusion must exceed 10 non-whitespace characters; a write that misses either is rejected.
+
+- **Refreshed per request**: a new user request invalidates the previous check; the current request must write again.
+- **Turn gate**: when the turn is about to close, a missing valid block or a missing report line forces one extra step (only once).
+- **Report line**: one line at the top of the reply, `> **词条检测**：…`, with the detection/recording result.
+- **Candidate weight**: accepted candidates are counted across distinct sessions; at 3 sessions with a definition or default target, the term is promoted into the general layer with status `待观察`. Weights live in `auto/weights.json` and are never injected.
+- **Consecutive edits**: the 3rd consecutive update of the same term through `dict-write` is rejected and the model must ask the user first; manual panel edits are not counted.
+- **Off**: turning the detection switch off stops injection, ledger creation and counting. Installing `plugin-evolution` disables the same set.
+
 ## Settings panel
 
 Settings → *Term dictionary*: a layer tree on the left, term editing and raw-text editing on the right, and a
-settings page for auto-activation, the three limits, the preset allowlist and skipped workspaces. A separate
+settings page for auto-activation, the three limits, the detection switch, the preset allowlist and skipped workspaces. A separate
 *Structure* page manages modules and types; removing a module scans its impact first and only touches data
 after 24 hours, with an undo window.
 
 ## Local routes
 
-The host half registers 24 loopback-only routes under `/dsh-term-dict`; state-changing requests must also be
+The host half registers 25 loopback-only routes under `/dsh-term-dict`; state-changing requests must also be
 same-origin (cross-site writes from a browser get 403). Non-browser clients without those headers still work.
 
 | Group | Routes |
@@ -84,7 +102,8 @@ same-origin (cross-site writes from a browser get 403). Non-browser clients with
 ## Data
 
 Everything lives in `$DSH_HOME/evolve/dict/`: `general.md`, `domains/<slug>.md`, `.settings.json`,
-`.activation.json`. The dictionary files are plain text and can be edited by hand; the plugin keeps a `.bak`
+`.activation.json`. Detection data lives in `auto/`: `template.md`, `work/<session-id>.md`, `weights.json`,
+`archive/`. The dictionary files are plain text and can be edited by hand; the plugin keeps a `.bak`
 before writing. Uninstalling does not delete them.
 On first run, if the general layer does not exist, the plugin seeds two term entries ("词条", alias 词目,
 and "词典", aliases 字典/术语字典; both type 称谓型 with all modules filled in). An
@@ -106,7 +125,7 @@ npm install
 npm run build:client    # regenerate lib/client.js from src/entry.jsx
 npm run check:client    # committed bundle matches the source
 npm run check           # syntax
-npm run smoke           # structure, composition, host tools and routes, activation defaults, default entry, bundle, leftovers
+npm run smoke           # nine checks: structure, composition, host tools/routes, activation defaults, seed entries, detection template, candidate weights, bundle, leftovers
 ```
 
 `lib/client.js` is a committed build artifact: installing from GitHub does not run a build, and without the
@@ -120,6 +139,8 @@ package name as `id`.
 - Task-layer terms only match when workspace binding or a session override allows them.
 - The panel routes are loopback-only: on a remotely accessed DSH the panel returns 403.
 - Entries are plain text split by level-2 headings; hand edits must keep the `## name` heading.
+- Detection candidates are written by the model; the plugin checks the template shape, length, report line and write path, not the judgment quality. The write gate covers the `write`/`edit` tools only; shell writes bypass it.
+- Promotion always targets the general layer with status `待观察`; it is not routed per task layer and still needs human confirmation.
 
 ## Feedback
 

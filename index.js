@@ -20,7 +20,8 @@
  */
 
 import { existsSync, readFileSync, writeFileSync, copyFileSync, mkdirSync, readdirSync, unlinkSync, renameSync } from 'node:fs'
-import { join, dirname, basename } from 'node:path'
+import { join, dirname, basename, isAbsolute, resolve, sep } from 'node:path'
+import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { defineTool } from '@deepseek-ai/dsh-tools'
@@ -28,7 +29,10 @@ import {
   installActivation, presetOfSession, loadSettings, saveSettings, DEFAULT_SETTINGS,
   sweepSchema, TYPE_IDS, MODULE_FIELDS, LOCKED_MODULES, DAY_MS, validModuleName, kindOf,
   parseDomainHeader, layerCatalog, sessionLayerState, setSessionLayer, seedGeneral,
+  detectFile, modeAllowed, isMuted, detectionActive,
 } from './activation.js'
+import { promoteReady as promoteWeightEntries, registerFromLedger } from './weights.js'
+import { DETECT_WORK_DIR, validateDetectText, hasReportLine } from './detect-format.js'
 
 /**
  * 技能排序档位：与宿主内置 bundled 技能同档。
@@ -52,6 +56,8 @@ const STATUSES = ['已确认', '部分确认', '待观察', '已废']
 const FIELD_ORDER = ['类型', '定义', '默认指代', '边界', '状态', '备注']
 const API_PREFIX = '/dsh-term-dict/api'
 const MAX_WRITE_BYTES = 1 << 20
+/** 会话内连续修改词的计数：到 3 次拒写，要求先问用户；新建词条／新用户请求会清零。 */
+const writeStreak = new Map()
 
 const OUT_SCHEMA = {
   type: 'object',
@@ -1217,7 +1223,7 @@ export function apply(ctx) {
       if (!tool) throw new Error('action 只能是 lookup（查）／write（写）／lint（体检）／mute（本会话不灌注）／unmute（恢复灌注）')
       const rest = { ...args }
       delete rest.action
-      return tool.execute(rest)
+      return tool.execute(rest, exec)
     },
   })
 
@@ -1227,6 +1233,28 @@ export function apply(ctx) {
   } catch (error) {
     try {
       ctx.logger?.warn?.(`dsh-term-dict: 自动激活没挂上：${error instanceof Error ? error.message : String(error)}`)
+    } catch {
+      /* 日志不可用不影响工具 */
+    }
+  }
+
+  // 候选权重：跨会话隐形计数，够阈值自动转正；不注入、不显示。
+  try {
+    installWeighting(ctx)
+  } catch (error) {
+    try {
+      ctx.logger?.warn?.(`dsh-term-dict: 候选权重没挂上：${error instanceof Error ? error.message : String(error)}`)
+    } catch {
+      /* 日志不可用不影响工具 */
+    }
+  }
+
+  // 检测账本写入硬拦：缺 EVID／结论或结论太短，写入直接失败。
+  try {
+    installDetectGuard(ctx)
+  } catch (error) {
+    try {
+      ctx.logger?.warn?.(`dsh-term-dict: 检测写入闸没挂上：${error instanceof Error ? error.message : String(error)}`)
     } catch {
       /* 日志不可用不影响工具 */
     }
@@ -1280,6 +1308,183 @@ export function apply(ctx) {
     })
   } catch {
     /* 组合里没有 agent 事件：工具不注册（模型看不到） */
+  }
+}
+
+/** 词条是否已在任一层（通用或任务层）里——转正前查重，已有的不再写一份。 */
+function hasTermEverywhere(term) {
+  if (parseEntries(readText(GENERAL_FILE)).some((e) => e.term === term)) return true
+  for (const slug of domainSlugs()) {
+    if (parseEntries(readText(join(DOMAIN_DIR, slug + '.md'))).some((e) => e.term === term)) return true
+  }
+  return false
+}
+
+/** 权重够格的候选转正：写进通用层（状态 待观察），然后标记已转正；已存在就只标记。 */
+function promoteReady() {
+  promoteWeightEntries({
+    threshold: loadSettings().promoteAfter,
+    writeEntry: (term, fields) => upsert(GENERAL_FILE, 'general', '', term, fields),
+    hasTerm: hasTermEverywhere,
+  })
+}
+
+/**
+ * 会话结束时读本会话的检测账本：把「判定：收」的候选按会话记一档，够阈值就转正。
+ * 不做逐轮扫描——账本本身就是 AI 的落盘结果，插件只读它。
+ */
+function installWeighting(ctx) {
+  const finish = (sessionId) => {
+    try {
+      if (!sessionId) return
+      if (!detectionActive()) return
+      const file = detectFile(sessionId)
+      if (file && existsSync(file)) registerFromLedger(sessionId, readText(file))
+      promoteReady()
+    } catch {
+      /* 账本读不到不影响会话关闭 */
+    }
+  }
+  try {
+    ctx.on('session/disposed', (session) => { finish(session && session.id) })
+  } catch {
+    /* 无会话事件就只靠归档事件 */
+  }
+  try {
+    ctx.on('workspace/session-stop', ({ sessionId }) => { finish(sessionId) })
+  } catch {
+    /* 无归档事件就只靠 disposed */
+  }
+}
+
+/**
+ * 检测账本的写入硬拦：工具要写 work 目录下的检测文件时，先用标准格式校验；
+ * 缺 EVID:、缺 结论：、结论不超过 10 个字 → 直接 deny，写入失败。
+ * 只拦 write／edit 两个文件工具；模板与权重文件不在此列。
+ */
+function installDetectGuard(ctx) {
+  // 每个会话的当前请求：新请求进来就重置；写成功后标 written；回合要关时没写就 steer 一次。
+  const turns = new Map()
+  const isUnder = (file, dir) => {
+    const f = resolve(file).toLowerCase()
+    const d = resolve(dir).toLowerCase()
+    return f === d || f.startsWith(d + sep)
+  }
+  const editContent = (file, args) => {
+    let before = ''
+    try {
+      before = readFileSync(file, 'utf8')
+    } catch {
+      return ''
+    }
+    const oldText = String(args.old_string || '')
+    const newText = String(args.new_string || '')
+    if (!oldText) return before
+    return args.replace_all ? before.split(oldText).join(newText) : before.replace(oldText, newText)
+  }
+  try {
+    ctx.on('tools/pre-execute', async (exec, next) => {
+      try {
+        const name = String((exec && exec.name) || '')
+        if (name !== 'write' && name !== 'edit') return next()
+        if (!detectionActive()) return next()
+        const args = (exec && exec.arguments) || {}
+        const filePath = String(args.file_path || args.path || '')
+        if (!filePath) return next()
+        const session = exec && exec.agent && exec.agent.session
+        const cwd = session && session.header && typeof session.header.cwd === 'string' ? session.header.cwd : ''
+        const target = isAbsolute(filePath) ? filePath : resolve(cwd, filePath)
+        if (!isUnder(target, DETECT_WORK_DIR)) return next()
+        const content = name === 'write' ? String(args.content || '') : editContent(target, args)
+        const verdict = validateDetectText(content)
+        if (!verdict.ok) {
+          return { kind: 'deny', reason: '词条检测写入失败：' + verdict.errors.join('；') }
+        }
+        if (session && session.id) {
+          const st = turns.get(session.id)
+          if (st) st.written = true
+        }
+      } catch {
+        /* 校验异常不误伤写入 */
+      }
+      return next()
+    })
+  } catch {
+    /* 没有 pre-execute 服务就不拦 */
+  }
+
+  // 新请求进来：上一轮的检查作废，本轮必须重新落盘。
+  try {
+    ctx.on('agent/pre-step', (payload, next) => {
+      try {
+        const session = payload && payload.agent && payload.agent.session
+        if (session && session.id) {
+          const hasUser = (payload.messages || []).some((m) => m && m.source && m.source.kind === 'user')
+          if (hasUser) {
+            writeStreak.delete(session.id)
+            turns.set(session.id, { turn: payload.turn, written: false, steered: false, text: '' })
+          }
+        }
+      } catch {
+        /* 状态刷新失败不拦主流程 */
+      }
+      return next()
+    })
+  } catch {
+    /* 没有 agent 事件就不做回合闸 */
+  }
+
+  // 收本轮助手文本：报告行可能出现在任意一步，累计到回合关闭时再判。
+  try {
+    ctx.on('session/event', (session, event) => {
+      try {
+        if (!session || !session.id || !event || event.type !== 'assistant/message') return
+        const st = turns.get(session.id)
+        if (!st) return
+        const content = event.data && event.data.message && event.data.message.content
+        if (!Array.isArray(content)) return
+        const text = content.filter((b) => b && b.type === 'text').map((b) => b.text || '').join('\n')
+        if (text) st.text = (st.text ? st.text + '\n' : '') + text
+      } catch {
+        /* 单条解析失败不影响 */
+      }
+    })
+  } catch {
+    /* 没有 session 事件就不查报告 */
+  }
+
+  // 回合要关：本轮没写过有效检测块，或正文没有报告行，就强制补一步；只补一次，防死循环。
+  try {
+    ctx.on('agent/turn-stopping', ({ agent, turn }) => {
+      try {
+        const session = agent && agent.session
+        if (!session || !session.id) return
+        if (!detectionActive()) return
+        if (!modeAllowed(ctx, session) || isMuted(session)) return
+        const st = turns.get(session.id)
+        if (!st || st.turn !== turn || st.steered) return
+        const missingWrite = !st.written
+        const missingReport = !hasReportLine(st.text)
+        if (!missingWrite && !missingReport) return
+        st.steered = true
+        const need = []
+        if (missingWrite) need.push('把判别结果写进检测文件（EVID + 结论 >10 字）')
+        if (missingReport) need.push('正文开头补一行「> **词条检测**：无候选／候选 N／未过」')
+        agent.steer({
+          id: randomUUID(),
+          role: 'user',
+          source: { kind: 'term-dict-gate' },
+          content: [{
+            type: 'text',
+            text: '【词条检测关卡】本次请求还差：' + need.join('；') + '。补完再结束。',
+          }],
+        })
+      } catch {
+        /* 补步失败就让本轮结束 */
+      }
+    })
+  } catch {
+    /* 没有 turn-stopping 就不强制 */
   }
 }
 
@@ -1366,7 +1571,7 @@ function applyInner(ctx) {
       schema: OUT_SCHEMA,
       render: (_args, value) => [{ type: 'text', text: value.text }],
     },
-    async execute(args) {
+    async execute(args, exec) {
       const term = String(args.term || '').trim()
       const definition = String(args.definition || '').trim()
       const defaultRef = String(args.defaultRef || '').trim()
@@ -1407,7 +1612,23 @@ function applyInner(ctx) {
         throw new Error('layer 只能是：通用／任务（或 general／domain）')
       }
 
+      // 连续修改限次：只数 AI 经 dict-write 的覆盖更新；用户自己在面板改不经过这里，不计。
+      const session = exec && exec.agent && exec.agent.session
+      const sid = session && session.id ? String(session.id) : ''
+      let streakNext = 0
+      const isUpdate = hasTermEverywhere(term)
+      if (detectionActive() && sid && isUpdate) {
+        streakNext = (writeStreak.get(sid) || 0) + 1
+        if (streakNext >= 3) {
+          return { ok: false, text: '连续修改已达 3 次：先停下来问用户，得到同意再改（用户自己改的不计入）。' }
+        }
+      }
+
       const res = upsert(file, kind, domain, term, fields)
+      if (detectionActive() && sid) {
+        if (isUpdate) writeStreak.set(sid, streakNext)
+        else writeStreak.delete(sid)
+      }
       const entry = parseEntries(readText(file)).find((e) => e.term === term)
       return {
         ok: true,
