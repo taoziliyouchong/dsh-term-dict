@@ -944,6 +944,18 @@ export function presetOfSession(ctx, session) {
   if (!session) return undefined
   const detail = presetDetailFromArchive(session.id)
   if (detail.last) return detail.last
+  // DSH 0.2.2 起的官方入口：agentPresets.presetForSession（注册表级 sessionProjections.stateOf 已弃用）。
+  // 旧版没有这个服务时退回投影，两边都能跑。
+  try {
+    const presets = ctx && typeof ctx.get === 'function' ? ctx.get('agentPresets') : undefined
+    if (presets && typeof presets.presetForSession === 'function') {
+      const got = presets.presetForSession(session)
+      const value = typeof got === 'string' ? got : (got && typeof got.id === 'string' ? got.id : undefined)
+      if (typeof value === 'string' && value.length > 0) return value
+    }
+  } catch {
+    /* 没有 agentPresets：退回投影 */
+  }
   try {
     const projections = ctx && typeof ctx.get === 'function' ? ctx.get('sessionProjections') : undefined
     if (projections && typeof projections.stateOf === 'function') {
