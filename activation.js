@@ -151,7 +151,7 @@ const HEADER = '【术语字典·已激活词条｜按下面口径理解，不�
 
 /* ───────────────────────── 词条检测 ───────────────────────── */
 
-/** 本机是否装了进化模式（plugin-evolution）；装了就让整个自动检测失效。 */
+/** 本机是否装了进化模式（evolve）；装了就让整个自动检测失效。 */
 let evolutionPresent = false
 let evolutionCheckedAt = 0
 
@@ -165,7 +165,7 @@ export async function refreshEvolutionPreset(ctx) {
     }
     const roster = await service.remoteExportList()
     const rows = roster && Array.isArray(roster.presets) ? roster.presets : []
-    evolutionPresent = rows.some((row) => row && row.id === 'plugin-evolution')
+    evolutionPresent = rows.some((row) => row && row.id === 'evolve')
     evolutionCheckedAt = Date.now()
   } catch {
     /* 取不到就保持上次判定 */

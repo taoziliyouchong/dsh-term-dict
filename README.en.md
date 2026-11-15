@@ -11,8 +11,7 @@ down once; from then on the first mention in any session carries the agreed mean
 
 Each session also injects a term-detection pass: the model writes new candidates it finds in your words into a
 session ledger, and a candidate used across enough sessions is promoted into the general layer. The detection
-switch lives in *Settings → Advanced* (on by default); if the `plugin-evolution` preset is installed, the whole
-detection pass is disabled.
+switch lives in *Settings → Advanced* (on by default).
 
 ## Layout
 
@@ -78,7 +77,7 @@ and the conclusion must exceed 10 non-whitespace characters; a write that misses
 - **Report line**: one line at the top of the reply, `> **词条检测**：…`, with the detection/recording result.
 - **Candidate weight**: accepted candidates are counted across distinct sessions; at 3 sessions with a definition or default target, the term is promoted into the general layer with status `待观察`. Weights live in `auto/weights.json` and are never injected.
 - **Consecutive edits**: the 3rd consecutive update of the same term through `dict-write` is rejected and the model must ask the user first; manual panel edits are not counted.
-- **Off**: turning the detection switch off stops injection, ledger creation and counting. Installing `plugin-evolution` disables the same set.
+- **Off**: turning the detection switch off stops injection, ledger creation and counting. Installing `evolve` disables the same set.
 
 ## Settings panel
 

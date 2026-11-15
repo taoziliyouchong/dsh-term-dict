@@ -1281,7 +1281,7 @@ export function TermDictSection() {
   if (advanced) {
     const d = settingsDraft || SETTINGS_DEFAULTS
     const hasEvolutionPreset = Array.isArray(presetRoster)
-      && presetRoster.some((p) => p && p.id === 'plugin-evolution')
+      && presetRoster.some((p) => p && p.id === 'evolve')
 
     if (structureView) {
       const sc = d.schema || SETTINGS_DEFAULTS.schema

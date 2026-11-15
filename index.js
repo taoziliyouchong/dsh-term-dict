@@ -1357,6 +1357,34 @@ function installWeighting(ctx) {
   }
 }
 
+/** 账本里的候选：名字＋结论 一组一个键（用来判断本回合有没有新增真实候选）。 */
+function candidateKeys(text) {
+  const keys = new Set()
+  const blocks = String(text || '').split(/^##\s+/m).slice(1)
+  for (const block of blocks) {
+    const lines = block.split(/\r?\n/)
+    const name = String(lines.shift() || '').trim().replace(/^候选\s*[：:]\s*/, '')
+    if (!name) continue
+    const m = /^[-*]?\s*结论\s*[：:]\s*(.*)$/m.exec(lines.join('\n'))
+    keys.add(name + '\u0000' + String(m ? m[1] : '').trim())
+  }
+  return keys
+}
+
+/** 名字是「无／没有」这类占位的，不算真实候选。 */
+const PLACEHOLDER_CANDIDATE = /^(无|没有|（无）|\(无\)|—|-|none|n\/a)$/i
+
+/** 本回合写进账本的有没有新的真实候选（占位「无」这类不算）。 */
+function hasNewRealCandidate(before, after) {
+  const prev = candidateKeys(before)
+  for (const key of candidateKeys(after)) {
+    if (prev.has(key)) continue
+    const name = key.split('\u0000')[0]
+    if (!PLACEHOLDER_CANDIDATE.test(name)) return true
+  }
+  return false
+}
+
 /**
  * 检测账本的写入硬拦：工具要写 work 目录下的检测文件时，先用标准格式校验；
  * 缺 EVID:、缺 结论：、结论不超过 10 个字 → 直接 deny，写入失败。
@@ -1402,7 +1430,12 @@ function installDetectGuard(ctx) {
         }
         if (session && session.id) {
           const st = turns.get(session.id)
-          if (st) st.written = true
+          if (st) {
+            st.written = true
+            let before = ''
+            try { before = readFileSync(target, 'utf8') } catch { /* 新文件 */ }
+            if (hasNewRealCandidate(before, content)) st.real = true
+          }
         }
       } catch {
         /* 校验异常不误伤写入 */
@@ -1422,7 +1455,7 @@ function installDetectGuard(ctx) {
           const hasUser = (payload.messages || []).some((m) => m && m.source && m.source.kind === 'user')
           if (hasUser) {
             writeStreak.delete(session.id)
-            turns.set(session.id, { turn: payload.turn, written: false, steered: false, text: '' })
+            turns.set(session.id, { turn: payload.turn, written: false, real: false, steered: false, text: '' })
           }
         }
       } catch {
@@ -1453,7 +1486,7 @@ function installDetectGuard(ctx) {
     /* 没有 session 事件就不查报告 */
   }
 
-  // 回合要关：本轮没写过有效检测块，或正文没有报告行，就强制补一步；只补一次，防死循环。
+  // 回合要关：账本必写；有新真候选才要求正文报告行。只补一次，防死循环。
   try {
     ctx.on('agent/turn-stopping', ({ agent, turn }) => {
       try {
@@ -1463,21 +1496,25 @@ function installDetectGuard(ctx) {
         if (!modeAllowed(ctx, session) || isMuted(session)) return
         const st = turns.get(session.id)
         if (!st || st.turn !== turn || st.steered) return
-        const missingWrite = !st.written
-        const missingReport = !hasReportLine(st.text)
-        if (!missingWrite && !missingReport) return
+        // 账本必写：本轮没写就补写。
+        if (!st.written) {
+          st.steered = true
+          agent.steer({
+            id: randomUUID(),
+            role: 'user',
+            source: { kind: 'term-dict-gate' },
+            content: [{ type: 'text', text: '【词条检测关卡】本轮还没写检测账本：把本轮的判别写进检测账本。' }],
+          })
+          return
+        }
+        // 正文报告行只在真的有新词条时出：本轮没有真实候选就不出。
+        if (!st.real || hasReportLine(st.text)) return
         st.steered = true
-        const need = []
-        if (missingWrite) need.push('把判别结果写进检测文件（EVID + 结论 >10 字）')
-        if (missingReport) need.push('正文开头补一行「> **词条检测**：无候选／候选 N／未过」')
         agent.steer({
           id: randomUUID(),
           role: 'user',
           source: { kind: 'term-dict-gate' },
-          content: [{
-            type: 'text',
-            text: '【词条检测关卡】本次请求还差：' + need.join('；') + '。补完再结束。',
-          }],
+          content: [{ type: 'text', text: '【词条检测关卡】本轮写了新候选，还差正文开头一行「> **词条检测**：…」。补完再结束。' }],
         })
       } catch {
         /* 补步失败就让本轮结束 */

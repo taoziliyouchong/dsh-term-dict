@@ -243,7 +243,7 @@ else if (!client.includes('presets')) fail('客户端产物', '产物里没有�
 else if (!client.includes('灌注的模式')) fail('客户端产物', '产物里没有「灌注的模式」面板文案（源码改了但没重新构建）')
 else if (!client.includes('detectEnabled')) fail('客户端产物', '产物里没有检测开关字段（源码改了但没重新构建）')
 else if (!client.includes('词条检测')) fail('客户端产物', '产物里没有「词条检测」面板文案（源码改了但没重新构建）')
-else if (!client.includes('plugin-evolution')) fail('客户端产物', '产物里没有进化模式隐藏判断（源码改了但没重新构建）')
+else if (!client.includes('id === "evolve"')) fail('客户端产物', '产物里没有进化模式隐藏判断（源码改了但没重新构建）')
 else ok('客户端产物', 'id=' + pkg.name + '，' + Buffer.byteLength(client, 'utf8') + ' 字节')
 
 /** 9. 环境残留：发布包里不能有只在本机成立的东西 */
