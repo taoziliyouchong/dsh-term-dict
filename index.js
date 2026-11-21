@@ -1786,7 +1786,7 @@ function applyInner(ctx) {
 
   // 内置技能（bundled 来源，rank 600 与官方 bundled 技能一致）——单 provider 挂全部技能
   const skillEntries = [
-    { name: 'term-dict-workflow', description: '术语字典用法：两级（通用/任务）各收什么、收录判据、词条格式（定义/边界/反例/别称/排他性）与状态用法、撞名认哪条、何时查何时写', file: 'term-dict-workflow.md' },
+    { name: 'term-dict-workflow', description: '术语字典用法：什么时候该查、什么时候该写；词条怎么写（定义／默认指代／边界／反例／别称／排他性／状态）；通用层与任务层各收什么；撞名认哪条', file: 'term-dict-workflow.md' },
   ]
   ctx.skills.registerProvider(() => ({
     name: 'dsh-term-dict',

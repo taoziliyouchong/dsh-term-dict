@@ -2,16 +2,16 @@
 
 [中文](README.md) | **English**
 
-A cross-session glossary for DSH: keep the terms you and the model agreed on in plain text files. When a term
-first shows up in a session, its definition is injected into the model context automatically. Ships with three
-tools (look up / write / lint) and a settings panel.
+A cross-session glossary for DSH. Every new session starts blank: the model no longer knows what *your* "report"
+or "the table" means. Write it down once; from then on the first mention in any session carries the agreed
+meaning — no memory, no re-explaining.
 
-Every new session starts blank: the model no longer knows what *your* "report" or "the table" means. Write it
-down once; from then on the first mention in any session carries the agreed meaning.
-
-Each session also injects a term-detection pass: the model writes new candidates it finds in your words into a
-session ledger, and a candidate used across enough sessions is promoted into the general layer. The detection
+It also picks up names you never wrote down: when the model meets a term the glossary does not have, it records
+one; a name that keeps coming back across sessions is promoted into the general layer on its own. The detection
 switch lives in *Settings → Advanced* (on by default).
+
+Underneath are two plain-text files (general and task layers), a settings panel you can read and edit, and three
+entries: look up, write, lint.
 
 ## Layout
 
