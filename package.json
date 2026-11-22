@@ -1,6 +1,6 @@
 {
   "name": "dsh-term-dict",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "跨会话的术语字典：写一次口径，之后每个新会话第一次用到这个词就自动带上；带查、写、体检三个入口，还能从对话里发现你没录过的新称谓。",
   "type": "module",
   "main": "index.js",

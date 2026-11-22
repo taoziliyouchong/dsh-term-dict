@@ -130,6 +130,7 @@ function defaultSchema() {
 export const DEFAULT_SETTINGS = {
   autoActivate: true,
   detectEnabled: true,
+  triggerSurface: 'user',
   promoteAfter: 3,
   maxActive: 64,
   maxEntryChars: 0,
@@ -445,6 +446,7 @@ export function loadSettings() {
   const value = {
     autoActivate: raw.autoActivate === undefined ? DEFAULT_SETTINGS.autoActivate : Boolean(raw.autoActivate),
     detectEnabled: raw.detectEnabled === undefined ? DEFAULT_SETTINGS.detectEnabled : Boolean(raw.detectEnabled),
+    triggerSurface: raw.triggerSurface === 'all' ? 'all' : 'user',
     promoteAfter: clampInt(raw.promoteAfter, SETTINGS_LIMITS.promoteAfter, DEFAULT_SETTINGS.promoteAfter),
     maxActive: clampInt(raw.maxActive, SETTINGS_LIMITS.maxActive, DEFAULT_SETTINGS.maxActive),
     maxEntryChars: clampInt(raw.maxEntryChars, SETTINGS_LIMITS.maxEntryChars, DEFAULT_SETTINGS.maxEntryChars),
@@ -464,6 +466,9 @@ export function saveSettings(next) {
   const merged = {
     autoActivate: next && next.autoActivate !== undefined ? Boolean(next.autoActivate) : cur.autoActivate,
     detectEnabled: next && next.detectEnabled !== undefined ? Boolean(next.detectEnabled) : cur.detectEnabled,
+    triggerSurface: next && next.triggerSurface !== undefined
+      ? (next.triggerSurface === 'all' ? 'all' : 'user')
+      : cur.triggerSurface,
     promoteAfter: clampInt(next && next.promoteAfter !== undefined ? next.promoteAfter : cur.promoteAfter,
       SETTINGS_LIMITS.promoteAfter, cur.promoteAfter),
     maxActive: clampInt(next && next.maxActive !== undefined ? next.maxActive : cur.maxActive,
@@ -740,7 +745,9 @@ export function entries() {
     const slug = isGeneral ? '' : basename(file).replace(/\.md$/, '')
     const meta = isGeneral ? { workspaces: [] } : parseDomainHeader(text)
     for (const entry of parseEntries(text)) {
-      if ((entry.fields['状态'] || '').trim() === '已废') continue
+      const status = (entry.fields['状态'] || '').trim()
+      // 不灌注是独立字段（- 灌注：否），不是状态：仍可查，只是不进自动注入。
+      if (status === '已废' || String(entry.fields['灌注'] || '').trim() === '否') continue
       const line = lineOf(entry, settings.maxEntryChars)
       if (!line) continue
       const names = namesOf(entry)
@@ -1104,6 +1111,8 @@ export function installActivation(ctx) {
       try {
         if (!event || event.type !== 'assistant/message') return
         if (!session || !modeAllowed(ctx, session) || isMuted(session)) return
+        // 触发面：默认只认用户消息；设置里切成 'all' 才扫 AI 思考与输出。
+        if (loadSettings().triggerSurface !== 'all') return
         const content = event.data && event.data.message && event.data.message.content
         if (!Array.isArray(content)) return
         const text = content

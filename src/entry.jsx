@@ -15,7 +15,7 @@
  * `?id=…` 到不了宿主，面板里每层都会显示 0 条。必须 pathname + search 一起带。
  */
 import { Fragment, useEffect, useRef, useState } from 'react'
-import { STATUSES, entryKind, listTerms, removeTerm, upsertTerm } from './term-text.js'
+import { STATUSES, entryKind, isInjectedOff, listTerms, removeTerm, upsertTerm } from './term-text.js'
 
 /** 把路由拼成当前页面挂载点下的路径（锚 document.baseURI，保留查询串）。 */
 function api(path) {
@@ -232,6 +232,8 @@ select.td-cell { padding:1px 2px; }
 .td-status { font-size:12px; color:var(--dsw-alias-label-primary); white-space:nowrap; font-weight:400; }
 .td-status-ok { color:var(--dsw-alias-state-success-primary); }
 .td-status-dead { color:var(--dsw-alias-state-error-primary); }
+.td-status-muted { color:var(--dsw-alias-label-secondary, #888); }
+.td-note { font-size:11px; color:var(--dsw-alias-label-secondary, #888); white-space:nowrap; }
 .td-card { display:flex; flex-direction:column; gap:8px; margin:8px 0 14px; padding:12px 14px;
   border:1px solid var(--dsw-alias-border-l1); border-radius:8px; background:var(--dsw-alias-bg-base); }
 .td-cardhead { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
@@ -268,6 +270,7 @@ const EMPTY_DOC = { loading: false, content: '', draft: '', error: null, saving:
 const SETTINGS_DEFAULTS = {
   autoActivate: true,
   detectEnabled: true,
+  triggerSurface: 'user',
   maxActive: 64,
   maxEntryChars: 0,
   maxTotalChars: 12000,
@@ -424,10 +427,18 @@ function TermForm(props) {
           {isNew ? null : <span className="td-kindtag" title="类型认词条里的「类型」字段，没有就按字段推断">{kindInfo.label}</span>}
         </span>
         <div className="td-cardacts">
+          <label className="td-note" title={'不勾＝写「- 灌注：否」：仍可查，但不自动注入；状态另算'}>
+            <input
+              type="checkbox"
+              checked={!isInjectedOff(f)}
+              onChange={(e) => set('灌注', e.target.checked ? '' : '否')}
+            />
+            {'灌注'}
+          </label>
           <select
             className="td-select"
             aria-label="状态"
-            title="已废＝本阶段不用，随时可以改好复出"
+            title="已废＝本阶段不用，随时可以改好复出；是否灌注用左边的开关"
             value={status}
             disabled={isNew && kindId === 'grave'}
             onChange={(e) => set('状态', e.target.value)}
@@ -589,7 +600,7 @@ export function TermDictSection() {
       || String(t.fields['定义'] || '').toLowerCase().indexOf(keyword) !== -1)
     : terms
   // 分类：两种口径——按状态（已确认 → 部分确认 → 待观察 → 已废）或按类型（schema 里的类型顺序）；
-  // 组内保持字典文件里的原顺序。
+  // 组内保持字典文件里的原顺序。「不灌注」是词条上的独立字段，不参与分组。
   const STATUS_SEQ = ['已确认', '部分确认', '待观察', '已废']
   const schemaTypesForGroup = (schema && schema.types) || SETTINGS_DEFAULTS.schema.types
   const KIND_SEQ = Object.keys(schemaTypesForGroup)
@@ -915,6 +926,7 @@ export function TermDictSection() {
     const clean = {
       autoActivate: Boolean(settingsDraft.autoActivate),
       detectEnabled: Boolean(settingsDraft.detectEnabled),
+      triggerSurface: settingsDraft.triggerSurface === 'all' ? 'all' : 'user',
       maxActive: Math.round(Number(settingsDraft.maxActive)),
       maxEntryChars: Math.round(Number(settingsDraft.maxEntryChars)),
       maxTotalChars: Math.round(Number(settingsDraft.maxTotalChars)),
@@ -1586,6 +1598,20 @@ export function TermDictSection() {
                   onChange={(e) => setDraftField('autoActivate', e.target.checked)}
                 />
                 <span className="td-hint">{'命中词条就注入'}</span>
+              </span>
+            </label>
+            <label className="td-srow">
+              <span className="td-slabel">{'触发面'}</span>
+              <span className="td-sfield">
+                <select
+                  className="td-select"
+                  value={d.triggerSurface === 'all' ? 'all' : 'user'}
+                  onChange={(e) => setDraftField('triggerSurface', e.target.value)}
+                >
+                  <option value="user">{'只认你说的词'}</option>
+                  <option value="all">{'三处都算（含 AI 思考与输出）'}</option>
+                </select>
+                <span className="td-hint">{'只认你说的词时，我的输出不再触发注入'}</span>
               </span>
             </label>
             <label className="td-srow">
@@ -2304,6 +2330,7 @@ export function TermDictSection() {
                         >
                           <span className="td-entryname">{t.term}</span>
                           <span className="td-entrymeta">
+                            {isInjectedOff(t.fields) ? <span className="td-note">{'不灌注'}</span> : null}
                             <span className="td-caret" aria-hidden="true">{'›'}</span>
                           </span>
                         </button>

@@ -53,7 +53,9 @@ const GENERAL_FILE = join(DICT_ROOT, 'general.md')
 /** 任务层（原领域层）：一个文件＝一类任务，文件名即任务 slug。 */
 const DOMAIN_DIR = join(DICT_ROOT, 'domains')
 const STATUSES = ['已确认', '部分确认', '待观察', '已废']
-const FIELD_ORDER = ['类型', '定义', '默认指代', '边界', '状态', '备注']
+const FIELD_ORDER = ['类型', '定义', '默认指代', '边界', '状态', '灌注', '备注']
+/** 「灌注：否」＝仍可查、不参与自动注入；其它值不写。 */
+const INJECT_OFF = '否'
 const API_PREFIX = '/dsh-term-dict/api'
 const MAX_WRITE_BYTES = 1 << 20
 /** 会话内连续修改词的计数：到 3 次拒写，要求先问用户；新建词条／新用户请求会清零。 */
@@ -165,10 +167,11 @@ function parseEntries(text) {
 
 function renderEntry(entry) {
   const aliases = String(entry.fields['别称'] || '').trim()
-  const keys = FIELD_ORDER.filter((k) => k !== '别称' && entry.fields[k] !== undefined)
-    .concat(Object.keys(entry.fields).filter((k) => k !== '别称' && FIELD_ORDER.indexOf(k) === -1))
+  const filled = (k) => entry.fields[k] !== undefined && String(entry.fields[k]).trim() !== ''
+  const keys = FIELD_ORDER.filter((k) => k !== '别称' && filled(k))
+    .concat(Object.keys(entry.fields).filter((k) => k !== '别称' && FIELD_ORDER.indexOf(k) === -1 && filled(k)))
   const out = ['## ' + entry.term + (aliases ? '（别名：' + aliases + '）' : '')]
-  for (const k of keys) out.push('- ' + k + '：' + entry.fields[k])
+  for (const k of keys) out.push('- ' + k + '：' + String(entry.fields[k]).trim())
   return out.join('\n')
 }
 
@@ -191,8 +194,11 @@ function upsert(file, kind, domain, term, fields) {
   if (!header.trim()) header = defaultHeader(kind, domain)
   const entries = parseEntries(text)
   const i = entries.findIndex((e) => e.term === term)
-  if (i >= 0) entries[i] = { term, fields: Object.assign({}, entries[i].fields, fields) }
-  else entries.push({ term, fields })
+  if (i >= 0) {
+    const merged = Object.assign({}, entries[i].fields, fields)
+    for (const k of Object.keys(fields)) if (fields[k] === null) delete merged[k]
+    entries[i] = { term, fields: merged }
+  } else entries.push({ term, fields })
   writeEntries(file, header, entries)
   return { created: i === -1 }
 }
@@ -1176,7 +1182,7 @@ export function apply(ctx) {
   // 工具定义只构造一次；注册动作在下面的模式门里按 agent 作用域做（2026-11-07）。
   const DICT_TOOL = defineTool({
     name: 'dict',
-    description: '术语字典（一个入口）：action=lookup 查（不传 term 列索引；传 term 给词条正文，**别名也查得到**；可传 layer／domain 收窄）；action=write 增或改一条并落盘（term 必填；definition 与 defaultRef 至少给一个；layer 必填，任务层要 domain；可补 boundary／counterExample／aliases／precedence／status／note；写前自动备份）；action=lint 体检（空定义／缺状态／重名／别称冲突／跨层同名同义）；action=mute／unmute 把**当前会话**加到／移出「不灌注词条」名单（用户说"这个会话别灌词条"时用）。涉及术语口径先 lookup，定下新口径用 write 落条，改完跑 lint。',
+    description: '术语字典（一个入口）：action=lookup 查（不传 term 列索引；传 term 给词条正文，**别名也查得到**；可传 layer／domain 收窄）；action=write 增或改一条并落盘（term 必填；definition 与 defaultRef 至少给一个；layer 必填，任务层要 domain；可补 boundary／counterExample／aliases／precedence／status／inject／note；写前自动备份）；action=lint 体检（空定义／缺状态／重名／别称冲突／跨层同名同义）；action=mute／unmute 把**当前会话**加到／移出「不灌注词条」名单（用户说"这个会话别灌词条"时用）。涉及术语口径先 lookup，定下新口径用 write 落条，改完跑 lint。',
     parameters: {
       action: { type: 'string', required: true, description: 'lookup（查）｜write（写）｜lint（体检）｜mute（本会话不灌注）｜unmute（恢复本会话灌注）' },
       term: { type: 'string', description: '词条名（lookup 不填＝列索引；write 必填）' },
@@ -1552,7 +1558,7 @@ function applyInner(ctx) {
             continue
           }
           lines.push('【' + t.label + '】' + entries.length + ' 条')
-          for (const e of entries) lines.push('  - ' + e.term + '（' + (e.fields['状态'] || '缺状态') + '）')
+          for (const e of entries) lines.push('  - ' + e.term + '（' + (e.fields['状态'] || '缺状态') + (String(e.fields['灌注'] || '').trim() === INJECT_OFF ? '·不灌注' : '') + '）')
         }
         return { ok: true, text: lines.join('\n') }
       }
@@ -1602,6 +1608,7 @@ function applyInner(ctx) {
       precedence: { type: 'string', description: '排他性：跟别的词条撞名时认哪条（会并进「备注」写成「排他性＝…」；留空＝按 任务>通用）' },
       status: { type: 'string', description: '状态：已确认／部分确认／待观察／已废（默认 待观察）。已废＝本阶段不用，不代表这个词以后永不录用、也不代表不能改好复出' },
       note: { type: 'string', description: '备注（可选，如待定项、出处）' },
+      inject: { type: 'boolean', description: '是否参与自动注入（默认不动）。false＝写「- 灌注：否」，仍可查但不注入；true＝删掉这一行，恢复注入' },
       type: { type: 'string', description: '词条类型（可选）：称谓型／落点型／留档型或自定义类型名；写入词条的「类型」字段，不写就按字段推断' },
     },
     output: {
@@ -1625,6 +1632,8 @@ function applyInner(ctx) {
       if (STATUSES.indexOf(status) === -1) throw new Error('status 只能是：' + STATUSES.join('／'))
       fields['状态'] = status
       if (args.note) fields['备注'] = String(args.note).trim()
+      if (args.inject === false) fields['灌注'] = INJECT_OFF
+      else if (args.inject === true) fields['灌注'] = null
       if (args.precedence) fields['备注'] = (fields['备注'] ? fields['备注'] + ' ' : '') + '排他性＝' + String(args.precedence).trim()
       if (args.type) {
         const wanted = String(args.type).trim()
@@ -1669,7 +1678,7 @@ function applyInner(ctx) {
       const entry = parseEntries(readText(file)).find((e) => e.term === term)
       return {
         ok: true,
-        text: (res.created ? '✅ 新建词条' : '✅ 已更新词条') + '：' + term + '（' + status + '）\n落点：' + file + '\n\n' + (entry ? renderEntry(entry) : ''),
+        text: (res.created ? '✅ 新建词条' : '✅ 已更新词条') + '：' + term + '（' + status + (fields['灌注'] === INJECT_OFF ? '，不灌注' : '') + '）\n落点：' + file + '\n\n' + (entry ? renderEntry(entry) : ''),
       }
     },
   }))
@@ -1701,6 +1710,8 @@ function applyInner(ctx) {
           const st = e.fields['状态']
           if (!st) problems.push(t.label + '｜' + e.term + '：缺状态')
           else if (STATUSES.indexOf(st) === -1) problems.push(t.label + '｜' + e.term + '：状态非标准（' + st + '）')
+          const inj = String(e.fields['灌注'] || '').trim()
+          if (inj !== '' && inj !== INJECT_OFF) problems.push(t.label + '｜' + e.term + '：灌注只能写「否」或留空（现在是「' + inj + '」）')
           if (local.has(e.term)) problems.push(t.label + '｜' + e.term + '：同层重名')
           local.add(e.term)
           localIndex.set(e.term, e)
